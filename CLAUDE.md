@@ -35,8 +35,35 @@
 7. `ExitWorktree` で抜ける。PR のレビューとマージは `/review-prs` が行う。
 
 書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
-AI とバランスの改善は `/improve-ai` スキルがこの手順をなぞる。
-`/loop /improve-ai` で改善を回し、`/loop /review-prs` で PR を取り込む。
+
+## 改善の 3 つのループ
+
+改善は担当を分けて回す。**どのループも 1 サイクルで直すのは 1 つ**、
+終わりに PR を作り、マージは `/review-prs` が行う。
+
+| ループ | 担当 | 触ってよい | 触らない |
+| --- | --- | --- | --- |
+| `/improve-seeker` | 鬼の行動 | `src/ai/seeker.ts`、params の seeker 側 | `src/core`、逃げる側 |
+| `/improve-hider` | 逃げる側の行動 | `src/ai/hider.ts`、params の hider 側 | `src/core`、鬼側 |
+| `/improve-balance` | ゲームルール | `src/core/config.ts`、機能の追加・廃止 | AI の戦術そのもの |
+
+行動の 2 つは**ゲームルールを変えない**。速度や視界を変えないと解けないと判断したら、
+config は触らずに `docs/issues/` に issue を立てる。そのとき**行動側で何を試して駄目だったか**を
+必ず書く。それが無いとルールを変える判断ができない。
+
+`/improve-balance` はその issue を引き取る唯一のループで、定数の調整に加えて
+**機能の追加・廃止**も行う。逆に、行動で解ける問題を issue で受けたら行動側へ差し戻す。
+
+```bash
+/loop /improve-seeker    # 攻撃側
+/loop /improve-hider     # 防御側
+/loop /improve-balance   # ゲームバランス
+/loop /review-prs        # 積まれた PR を取り込む
+```
+
+同時に回すと `src/ai` の同じ場所で衝突するので、各ループは作業前に master を取り込み、
+PR 作成前にもう一度取り込む。解決後は**勝率を測り直す**（個別に良い変更でも
+組み合わせて悪化することがある）。
 
 master に push されると GitHub Pages へ自動デプロイされる
 （<https://murakichi.github.io/hide-seek-3d/>）。PR には CI（型チェック・ビルド・
@@ -52,7 +79,7 @@ npm run trace -- --find-loss --interval 5        # 1 試合の展開を詳細ロ
 npm run tune  -- --side hider --iters 30         # AI パラメータの自動探索
 ```
 
-AI やバランスを直すときは `/improve-ai` スキルの手順に従う
+AI やバランスを直すときは上の 3 つのループのいずれかの手順に従う
 （測定 → トレース精査 → 原因を 1 つ修正 → 再測定 → 記録）。
 
 ## 構成
