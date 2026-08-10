@@ -43,6 +43,8 @@ export class HiderBrain {
   private rethink: Ticker;
   private stuckTimer = 0;
   private wanderAngle = 0;
+  /** 直前のティックで選んだ逃走方向（逃走モードでないときは null） */
+  private fleeAngle: number | null = null;
   /** 運搬に失敗した箱と、再挑戦できるようになる時刻 */
   private avoid = new Map<number, number>();
   /** 運び込めなかった置き場所と、再挑戦できるようになる時刻 */
@@ -368,6 +370,12 @@ export class HiderBrain {
     // 目的地へ動く前に、その道のりが直近の鬼へ近づかないかを必ず確かめる。
     const recent = this.recentThreats(ctx, agent);
 
+    // 逃走が切れたら方向の引き継ぎも切る。次に追われたときは白紙から選び直す。
+    // ただし後段の「退く」も fleeDirection で向きを決めるので、そちらへ抜けるときだけは
+    // 引き継ぎを戻す。毎ティック白紙にすると退避中だけ方向が振れて速度が乗らない。
+    const carriedFleeAngle = this.fleeAngle;
+    this.fleeAngle = null;
+
     // 追われていない間に補給しておく。追われてから走ると間に合わない。
     if (agent.stamina < STAMINA_MAX * 0.75) {
       const pack = nearestPickup(ctx, agent, 13);
@@ -386,6 +394,7 @@ export class HiderBrain {
     // 拠点は逃走のたびに置き去りにされるので、鬼と拠点の間に自分が居る形に
     // なりやすい。そこで最短経路を取ると鬼の正面に出てしまう。
     if (d > 2.2 && this.routeIsRisky(ctx, agent, home.x, home.z, recent)) {
+      this.fleeAngle = carriedFleeAngle;
       const dir = this.fleeDirection(ctx, agent, recent);
       this.path = [];
       act.moveX = dir.mx;
@@ -494,9 +503,11 @@ export class HiderBrain {
     const heading = Math.hypot(agent.vx, agent.vz) > 1 ? Math.atan2(agent.vx, agent.vz) : null;
 
     let bestDir = { mx: 0, mz: 0 };
+    let bestAngle = 0;
     let bestScore = -Infinity;
     // 全方向が塞がっていたときのために、一番遠くまで進める方向を控えておく。
     let fallbackDir = { mx: 0, mz: 0 };
+    let fallbackAngle = 0;
     let fallbackClear = -1;
     const samples = Math.max(8, Math.round(p.fleeSamples));
 
@@ -526,6 +537,7 @@ export class HiderBrain {
       if (fallbackValue > fallbackClear) {
         fallbackClear = fallbackValue;
         fallbackDir = { mx: dx, mz: dz };
+        fallbackAngle = ang;
       }
 
       if (clear < 2) continue;
@@ -562,6 +574,14 @@ export class HiderBrain {
       // 急な切り返しは減速につながるので、進行方向を保つ方に寄せる。
       if (heading !== null) score -= Math.abs(angleDiff(ang, heading)) * 2.2;
 
+      // 直前のティックで選んだ方向から離れるほど減点する。
+      // 毎ティック採点し直すと、間合いや `clear` のわずかな変化で選択が隣の候補へ
+      // 飛び移り続け、加速し切る前に向きが変わって逃げ足そのものが鈍る。
+      // 「乗り換えるならはっきり良い方向へ」に寄せることで、走り出しの速度が乗る。
+      if (this.fleeAngle !== null) {
+        score -= Math.abs(angleDiff(ang, this.fleeAngle)) * p.fleeTurnCost;
+      }
+
       // 息が上がってきたら、逃げる先に補給パックがあるコースを選ぶ。
       if (agent.stamina < STAMINA_MAX * 0.5) {
         for (const pack of s.pickups) {
@@ -576,12 +596,17 @@ export class HiderBrain {
       if (score > bestScore) {
         bestScore = score;
         bestDir = { mx: dx, mz: dz };
+        bestAngle = ang;
       }
     }
 
     // どの向きにも「走れる」と言えるだけの空きが無かった場合。
     // ここで停止すると、箱に囲まれたまま何十秒も固まって狩られる。
-    if (bestScore === -Infinity) return fallbackDir;
+    if (bestScore === -Infinity) {
+      this.fleeAngle = fallbackAngle;
+      return fallbackDir;
+    }
+    this.fleeAngle = bestAngle;
     return bestDir;
   }
 
