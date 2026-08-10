@@ -167,8 +167,9 @@ export class SeekerBrain {
         // 相手が居なければ意味がない。
         if (toPrey > 9) continue;
       } else {
-        if (o.h > agent.y + CLIMB_REACH) continue; // 今の高さからは乗れない
-        if (o.h <= agent.y + 0.2) continue; // 登ったことにならない
+        const top = o.y + o.h;
+        if (top > agent.y + CLIMB_REACH) continue; // 今の高さからは乗れない
+        if (top <= agent.y + 0.2) continue; // 登ったことにならない
       }
 
       // 相手に近い足場を優先しつつ、遠回りしすぎないようにする。

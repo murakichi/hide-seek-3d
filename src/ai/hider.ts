@@ -175,6 +175,11 @@ export class HiderBrain {
         this.lastBoxX = box.x;
         this.lastBoxZ = box.z;
         this.boxStall = moved < 0.02 ? this.boxStall + DT : 0;
+        // つかえたら跳ぶ。掴んだ箱は持ち手の足元に付いてくるので、
+        // 相手が乗せられる高さなら持ち上がって上に載り、そうでなければ何も起きず
+        // 下の «諦める» に落ちる。積むかどうかを事前に判断しないのは、
+        // 積み方の作り込みが逃げる側のサイクルの仕事だから（ここでは機能を使えるようにするだけ）。
+        if (this.boxStall > 0.35 && agent.grounded) act.jump = true;
         if (this.boxStall > 1.2) {
           // その置き場所自体が無理筋のこともあるので、箱と一緒にしばらく避ける。
           this.avoidSlots.set(this.job.slot, s.time + 8);
