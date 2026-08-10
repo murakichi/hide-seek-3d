@@ -37,6 +37,10 @@ export interface HiderParams {
   retreatMargin: number;
   /** 拠点に籠もるか、動き回るかの傾向（0=静止, 1=遊動） */
   roamBias: number;
+  /** 逃走解除後も「さっき鬼が居た場所」を覚えておく秒数 */
+  threatMemory: number;
+  /** 移動先へ向かう途中でこの距離まで脅威に近づくなら、その移動をやめる */
+  threatKeepAway: number;
 }
 
 export interface AiParams {
@@ -64,6 +68,8 @@ const BASE_PARAMS: AiParams = {
     fleeCoverBonus: 14,
     retreatMargin: 3,
     roamBias: 0.25,
+    threatMemory: 10,
+    threatKeepAway: 10,
   },
 };
 

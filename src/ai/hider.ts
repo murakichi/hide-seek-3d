@@ -362,10 +362,18 @@ export class HiderBrain {
       return act;
     }
 
+    // ここから先は「今は追われていない」状態。ただし逃走の判定材料である
+    // knownThreats は数秒で切れるので、切れた直後に鬼がいなくなったものとして
+    // 動くと、まだ近くにいる鬼へ自分から歩いて行くことになる。
+    // 目的地へ動く前に、その道のりが直近の鬼へ近づかないかを必ず確かめる。
+    const recent = this.recentThreats(ctx, agent);
+
     // 追われていない間に補給しておく。追われてから走ると間に合わない。
     if (agent.stamina < STAMINA_MAX * 0.75) {
       const pack = nearestPickup(ctx, agent, 13);
-      if (pack) return this.moveTo(ctx, agent, act, pack.x, pack.z, false);
+      if (pack && !this.routeIsRisky(ctx, agent, pack.x, pack.z, recent)) {
+        return this.moveTo(ctx, agent, act, pack.x, pack.z, false);
+      }
     }
 
     // 脅威が無い間は拠点付近で待機。たまに周囲を見る。
@@ -373,6 +381,27 @@ export class HiderBrain {
     const d = Math.hypot(home.x - agent.x, home.z - agent.z);
     // 待機中こそ周囲の確認が命綱なので、速めに首を振る。
     this.wanderAngle += 2.4 / 60;
+
+    // 帰り道がさっきまで鬼が居た側を通るなら、帰らずに退く。
+    // 拠点は逃走のたびに置き去りにされるので、鬼と拠点の間に自分が居る形に
+    // なりやすい。そこで最短経路を取ると鬼の正面に出てしまう。
+    if (d > 2.2 && this.routeIsRisky(ctx, agent, home.x, home.z, recent)) {
+      const dir = this.fleeDirection(ctx, agent, recent);
+      this.path = [];
+      act.moveX = dir.mx;
+      act.moveZ = dir.mz;
+      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz);
+      // 退いている間も鬼が居た方を見ておく。回り込まれたら逃走に切り替わる。
+      const closest = recent.reduce((best, t) =>
+        Math.hypot(t.x - agent.x, t.z - agent.z) < Math.hypot(best.x - agent.x, best.z - agent.z)
+          ? t
+          : best,
+      );
+      act.aimX = closest.x - agent.x;
+      act.aimZ = closest.z - agent.z;
+      return act;
+    }
+
     if (d > 2.2) {
       this.moveTo(ctx, agent, act, home.x, home.z, false);
     } else if (p.roamBias > 0.01) {
@@ -382,6 +411,56 @@ export class HiderBrain {
     act.aimX = Math.sin(this.wanderAngle);
     act.aimZ = Math.cos(this.wanderAngle);
     return act;
+  }
+
+  /**
+   * 直近に鬼が居たと分かっている場所。逃走判定の knownThreats より長く覚えておく。
+   * こちらは「動いてよいか」の判断にだけ使うので、古い情報でも害が小さい。
+   */
+  private recentThreats(ctx: AiContext, agent: Agent): Array<{ x: number; z: number }> {
+    const s = ctx.game.state;
+    const keep = ctx.params.hider.threatMemory;
+    const out: Array<{ x: number; z: number }> = [];
+    for (const a of s.agents) {
+      if (a.team !== 'seeker' || a.caught) continue;
+      if (canSee(s, agent, a)) {
+        out.push({ x: a.x, z: a.z });
+        continue;
+      }
+      const rec = s.memory.hider.get(a.id);
+      if (rec && s.time - rec.t < keep) out.push({ x: rec.x, z: rec.z });
+    }
+    return out;
+  }
+
+  /**
+   * 目的地までの道のりが、直近の脅威へ近づく形でしきい値を割るか。
+   * 「今より近づく」ことを条件に入れているのは、既に脅威の近くで待機している
+   * 場合まで動けなくしないため。止めてしまうと硬直して狩られる。
+   */
+  private routeIsRisky(
+    ctx: AiContext,
+    agent: Agent,
+    tx: number,
+    tz: number,
+    threats: Array<{ x: number; z: number }>,
+  ): boolean {
+    if (threats.length === 0) return false;
+    const keepAway = ctx.params.hider.threatKeepAway;
+    const dist = Math.hypot(tx - agent.x, tz - agent.z);
+    if (dist < 1e-3) return false;
+    const steps = Math.max(2, Math.min(10, Math.ceil(dist / 2.5)));
+    for (const t of threats) {
+      const now = Math.hypot(t.x - agent.x, t.z - agent.z);
+      for (let i = 1; i <= steps; i++) {
+        const f = i / steps;
+        const px = agent.x + (tx - agent.x) * f;
+        const pz = agent.z + (tz - agent.z) * f;
+        const d = Math.hypot(t.x - px, t.z - pz);
+        if (d < keepAway && d < now - 0.5) return true;
+      }
+    }
+    return false;
   }
 
   /** 見えている鬼＋チームの記憶にある鬼の位置。 */
