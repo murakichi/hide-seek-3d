@@ -36,6 +36,8 @@ const HIDER_RANGES: Record<string, Range> = {
   fleeTurnCost: [0, 60],
   retreatMargin: [1, 8],
   roamBias: [0, 0.8],
+  threatMemory: [4, 20],
+  threatKeepAway: [4, 18],
 };
 
 function ranges(side: Team): Record<string, Range> {
