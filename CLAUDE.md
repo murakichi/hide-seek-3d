@@ -5,15 +5,27 @@
 
 ## 作業ルール
 
-**各作業は必ず worktree を切って行うこと。** 作業を始める前に `EnterWorktree` で
-その作業用の worktree を作り、その中で編集する。メインの作業ディレクトリで直接編集しない。
+作業のたびに次を回す。
 
-```
-EnterWorktree({ name: "fix-hauling-stuck" })
-```
+1. **`docs/journal/` の直近 2〜3 件を読む。** 前回の続きと、試して駄目だった案を把握する。
+   `docs/issues/` に open の件があれば、優先度の高いものから拾う。
+2. **worktree を切る。** `EnterWorktree` でその作業用の worktree を作り、その中で編集する。
+   メインの作業ディレクトリで直接編集しない。名前は作業内容が分かるものにする
+   （`fix-*`, `tune-*`, `feat-*`, `setup-*` など）。
+   ```
+   EnterWorktree({ name: "fix-hauling-stuck" })
+   ```
+3. **1 サイクルで直すのは 1 つ。** 途中で別の問題に気づいたら、その場で直さずに
+   `docs/issues/` に新しい issue を立てる。
+4. **`docs/journal/YYYY-MM-DD.md` に追記する。** やったこと・分かったこと・次にやること。
+   価値があるのは「うまくいかなかったこと」と「意外だったこと」。成功した変更の内容自体は
+   git log に残るので繰り返さない。
+5. **issue を更新する。** 直ったら `status: closed` にして「解決」節を書く。閉じた issue は消さない。
+6. `ExitWorktree` で抜け、master にマージする。
 
-名前は作業内容が分かるものにする（`fix-*`, `tune-*`, `feat-*` など）。
-作業が終わったら `ExitWorktree` で抜ける。
+書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
+AI とバランスの改善は `/improve-ai` スキルがこの手順をなぞる。
+`/loop /improve-ai` で継続的に回せる。
 
 ## コマンド
 
