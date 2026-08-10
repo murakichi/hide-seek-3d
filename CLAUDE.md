@@ -21,11 +21,22 @@
    価値があるのは「うまくいかなかったこと」と「意外だったこと」。成功した変更の内容自体は
    git log に残るので繰り返さない。
 5. **issue を更新する。** 直ったら `status: closed` にして「解決」節を書く。閉じた issue は消さない。
-6. `ExitWorktree` で抜け、master にマージする。
+6. **PR を作る。** 作業ブランチを push して `gh pr create` する。master へ直接マージしない。
+   ```bash
+   git push -u origin worktree-fix-hauling-stuck
+   gh pr create --fill
+   ```
+   本文には**何を直したか・なぜそう判断したか（観測した事実）・勝率の前後**を書く。
+   AI やバランスを触ったなら 1v1 / 2v2 / 3v3 の数字を必ず添える。
+7. `ExitWorktree` で抜ける。PR のレビューとマージは `/review-prs` が行う。
 
 書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
 AI とバランスの改善は `/improve-ai` スキルがこの手順をなぞる。
-`/loop /improve-ai` で継続的に回せる。
+`/loop /improve-ai` で改善を回し、`/loop /review-prs` で PR を取り込む。
+
+master に push されると GitHub Pages へ自動デプロイされる
+（<https://murakichi.github.io/hide-seek-3d/>）。PR には CI（型チェック・ビルド・
+ヘッドレス対戦）が走る。
 
 ## コマンド
 

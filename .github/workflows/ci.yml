@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: 型チェックとビルド
+        run: npm run build
+
+      # AI を変更した PR で、勝率が壊れていないかを見るための最低限の対戦。
+      # 24 試合では ±10 ポイントぶれるので、ここでは「異常終了しないこと」と
+      # 目安の数字を出すことが目的。合否判定には使わない。
+      - name: ヘッドレス対戦（参考値）
+        run: |
+          npm run sim -- --games 12 --hiders 1 --seekers 1
+          npm run sim -- --games 12 --hiders 2 --seekers 2
+          npm run sim -- --games 12 --hiders 3 --seekers 3
