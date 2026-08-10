@@ -99,7 +99,20 @@ npm run tune -- --side hider --iters 1 --games 24 --seed 777 --dry-run
 
 最後にブランチを push して PR を作る。master へ直接マージしない。
 
+**PR を作る前に master を取り込む。** サイクルを並行して回していると、
+作業中に master が進んで `src/ai` の同じ場所が変わっていることがある。
+ここで取り込んでおけば、レビュー側で解決するより自分の変更の意図を保ちやすい。
+
 ```bash
+git fetch origin
+git merge origin/master
+```
+
+衝突したら解決し、**解決後にもう一度勝率を測る**。2 つの変更が個別に良くても、
+組み合わせて悪化することがある。数字が変わったら PR 本文はその実測値を書く。
+
+```bash
+npm run build
 git push -u origin <ブランチ名>
 gh pr create --title "..." --body "..."
 ```

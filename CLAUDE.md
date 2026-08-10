@@ -21,13 +21,17 @@
    価値があるのは「うまくいかなかったこと」と「意外だったこと」。成功した変更の内容自体は
    git log に残るので繰り返さない。
 5. **issue を更新する。** 直ったら `status: closed` にして「解決」節を書く。閉じた issue は消さない。
-6. **PR を作る。** 作業ブランチを push して `gh pr create` する。master へ直接マージしない。
+6. **PR を作る。** master を取り込んでから作業ブランチを push し、`gh pr create` する。
+   master へ直接マージしない。
    ```bash
+   git fetch origin && git merge origin/master   # 衝突はここで解決しておく
+   npm run build
    git push -u origin worktree-fix-hauling-stuck
    gh pr create --fill
    ```
    本文には**何を直したか・なぜそう判断したか（観測した事実）・勝率の前後**を書く。
    AI やバランスを触ったなら 1v1 / 2v2 / 3v3 の数字を必ず添える。
+   **衝突を解決したら勝率を測り直す。** 個別に良い変更でも、組み合わせると悪化することがある。
 7. `ExitWorktree` で抜ける。PR のレビューとマージは `/review-prs` が行う。
 
 書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
