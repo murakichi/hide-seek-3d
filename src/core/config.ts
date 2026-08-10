@@ -17,7 +17,8 @@ export const EYE_HEIGHT = 1.4;
 
 export const GRAVITY = 26;
 /**
- * 小さい箱（高さ 1.3）には地面から直接乗れるが、大きい箱（2.2）には届かない。
+ * 小さい箱（`BOX_HEIGHT_SMALL`）には地面から直接乗れるが、
+ * 大きい箱（`BOX_HEIGHT_BIG`）には届かない。
  * 大きい箱に上がるには低い箱やランプを踏み台にする必要がある。
  */
 export const JUMP_SPEED = 8.2;
@@ -76,6 +77,22 @@ export function huntTimeFor(seekers: number): number {
 export const CATCH_DIST = AGENT_RADIUS * 2 + 0.2;
 /** 捕獲成立する垂直距離（箱の上と下では触れない） */
 export const CATCH_VERTICAL = 1.6;
+
+/**
+ * 箱の高さ。踏み台にするための低い箱と、視線を止めるための高い箱。
+ *
+ * 視線は目線（`EYE_HEIGHT` = 1.4）から相手の頭（同じ高さ）へ引くので、
+ * **1.4 以下の箱は遮蔽としてまったく働かない**。小さい箱が遮蔽にならないのは
+ * 仕様であって不具合ではない（運ぶため・登るための箱）。
+ *
+ * 2026-08-10 に「小さい箱を 1.5 にして遮蔽にする」を 60 試合で試した結果、
+ * 見られている割合は 3v3 で 67.8% → 45.9% まで下がったのに勝率は動かなかった
+ * （16.7/23.3/26.7 → 11.7/21.7/28.3）。遮蔽の量は勝敗を決めていない。
+ * `docs/balance-log.md` 参照。ここを上げ直す前にその節を読むこと。
+ */
+export const BOX_HEIGHT_SMALL = 1.3;
+/** 大きい箱。踏み台なしでは乗れず、視線も止める。 */
+export const BOX_HEIGHT_BIG = 2.2;
 
 /** 視野角（全角、ラジアン） */
 export const VIEW_FOV = (115 * Math.PI) / 180;
