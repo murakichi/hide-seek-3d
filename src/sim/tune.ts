@@ -34,6 +34,7 @@ const HIDER_RANGES: Record<string, Range> = {
   fleeDistWeight: [0.3, 2.5],
   fleeCoverBonus: [0, 40],
   fleeTurnCost: [0, 60],
+  fleeClimbCost: [0, 40],
   retreatMargin: [1, 8],
   roamBias: [0, 0.8],
   threatMemory: [4, 20],

@@ -4,6 +4,7 @@
 import {
   AGENT_RADIUS,
   ARENA_HALF,
+  CLIMB_REACH,
   DT,
   EYE_HEIGHT,
   GRAB_MAX_SIZE,
@@ -35,6 +36,26 @@ type Job =
 const SLOT_COUNT = 8;
 /** これより遠い箱は準備時間内に運びきれないので候補にしない */
 const MAX_HAUL_DIST = 13;
+
+/**
+ * その地点を塞いでいるのが「跳んで乗り越えられる箱」だけか。
+ * 経路探索のグリッドは登れる箱も塞がれた扱いにするので、
+ * 逃走方向を選ぶときだけはここで見分ける。壁と大きい箱は乗り越えられない。
+ */
+function climbableAt(obstacles: readonly Obstacle[], x: number, z: number): boolean {
+  let found = false;
+  for (const o of obstacles) {
+    if (o.kind === 'ramp' || o.kind === 'pad') continue;
+    if (Math.abs(x - o.x) > o.hw + AGENT_RADIUS * 0.9) continue;
+    if (Math.abs(z - o.z) > o.hd + AGENT_RADIUS * 0.9) continue;
+    // 1 つでも乗り越えられないものが重なっていたら通れない。
+    // 箱は積めるので、見るのは高さ `h` ではなく上面 `y + h`。
+    // 積んだ 2 段（上面 2.6）は地面からは登れない。
+    if (o.kind === 'wall' || o.y + o.h > CLIMB_REACH) return false;
+    found = true;
+  }
+  return found;
+}
 
 export class HiderBrain {
   private path: Array<{ x: number; z: number }> = [];
@@ -346,7 +367,8 @@ export class HiderBrain {
       // 囲まれて速度が出ないときは、乗り越えて抜けることを試みる。
       const speed = Math.hypot(agent.vx, agent.vz);
       this.stuckTimer = speed < HIDER_SPEED * 0.3 ? this.stuckTimer + DT : 0;
-      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz) || this.stuckTimer > 0.4;
+      // 乗り越える向きを選んだなら、詰まるのを待たずに跳ぶ。減速してからでは箱に乗れない。
+      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz, dir.climb) || this.stuckTimer > 0.4;
 
       // 迫られている間は相手を見て、回り込みに反応できるようにする。
       const closest = threats.reduce((best, t) =>
@@ -404,7 +426,7 @@ export class HiderBrain {
       this.path = [];
       act.moveX = dir.mx;
       act.moveZ = dir.mz;
-      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz);
+      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz, dir.climb);
       // 退いている間も鬼が居た方を見ておく。回り込まれたら逃走に切り替わる。
       const closest = recent.reduce((best, t) =>
         Math.hypot(t.x - agent.x, t.z - agent.z) < Math.hypot(best.x - agent.x, best.z - agent.z)
@@ -501,17 +523,17 @@ export class HiderBrain {
     ctx: AiContext,
     agent: Agent,
     threats: Array<{ x: number; z: number }>,
-  ): { mx: number; mz: number } {
+  ): { mx: number; mz: number; climb: boolean } {
     const p = ctx.params.hider;
     const s = ctx.game.state;
     const seekers = s.agents.filter((a) => a.team === 'seeker' && !a.caught);
     const heading = Math.hypot(agent.vx, agent.vz) > 1 ? Math.atan2(agent.vx, agent.vz) : null;
 
-    let bestDir = { mx: 0, mz: 0 };
+    let bestDir = { mx: 0, mz: 0, climb: false };
     let bestAngle = 0;
     let bestScore = -Infinity;
     // 全方向が塞がっていたときのために、一番遠くまで進める方向を控えておく。
-    let fallbackDir = { mx: 0, mz: 0 };
+    let fallbackDir = { mx: 0, mz: 0, climb: false };
     let fallbackAngle = 0;
     let fallbackClear = -1;
     const samples = Math.max(8, Math.round(p.fleeSamples));
@@ -524,11 +546,18 @@ export class HiderBrain {
       // その方向にどこまで走れるか。
       // 見る距離は移動速度に見合わせる。短いと曲がり始めが遅れて壁に突っ込む。
       let clear = 0;
+      let climb = false;
       for (const t of [2, 4, 6, 8.5, 11.5]) {
         const px = agent.x + dx * t;
         const pz = agent.z + dz * t;
         if (Math.abs(px) > ARENA_HALF - 0.8 || Math.abs(pz) > ARENA_HALF - 0.8) break;
-        if (ctx.nav.isBlockedWorld(px, pz)) break;
+        if (ctx.nav.isBlockedWorld(px, pz)) {
+          // 塞いでいるのが乗り越えられる高さの箱なら、そこは通れる。
+          // nav は登れる箱も一律で塞がれた扱いにするので、この判定が無いと
+          // 「箱を挟める向き」＝遮蔽が取れる向きを、最初から候補から捨ててしまう。
+          if (!climbableAt(ctx.game.state.obstacles, px, pz)) break;
+          climb = true;
+        }
         clear = t;
       }
       // 脅威から遠ざかる向きを優先して控える。塞がれていても、
@@ -541,7 +570,7 @@ export class HiderBrain {
       const fallbackValue = clear + awayness;
       if (fallbackValue > fallbackClear) {
         fallbackClear = fallbackValue;
-        fallbackDir = { mx: dx, mz: dz };
+        fallbackDir = { mx: dx, mz: dz, climb };
         fallbackAngle = ang;
       }
 
@@ -576,6 +605,9 @@ export class HiderBrain {
         score += p.fleeCoverBonus;
       }
 
+      // 乗り越えは登る間だけ足が止まるので、その代償を引く。
+      if (climb) score -= p.fleeClimbCost;
+
       // 急な切り返しは減速につながるので、進行方向を保つ方に寄せる。
       if (heading !== null) score -= Math.abs(angleDiff(ang, heading)) * 2.2;
 
@@ -600,7 +632,7 @@ export class HiderBrain {
 
       if (score > bestScore) {
         bestScore = score;
-        bestDir = { mx: dx, mz: dz };
+        bestDir = { mx: dx, mz: dz, climb };
         bestAngle = ang;
       }
     }
