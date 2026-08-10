@@ -20,6 +20,8 @@ function make(
     kind,
     x,
     z,
+    y: 0,
+    vy: 0,
     hw,
     hd,
     h,

@@ -7,8 +7,10 @@ import {
   blocksHorizontally,
   boxesOverlap,
   clamp,
+  obstaclesCollide,
   pushCircleOutOfBox,
   supportHeight,
+  topOf,
 } from './physics';
 import { Rng } from './rng';
 import { updateMemory } from './vision';
@@ -151,6 +153,8 @@ export class Game {
     // 掴んだ箱を先に動かしてから衝突を解く。逆順にすると、押している本人が
     // 箱に押し戻されて箱が永久に動かないデッドロックになる。
     this.moveGrabbedObstacles();
+    // 手を離した箱を落とす。落ちた先に箱があればその上で止まる（＝積み上がる）。
+    this.settleObstacles(dt);
     this.resolveCollisions();
 
     this.resolvePickups();
@@ -399,7 +403,7 @@ export class Game {
   private onBouncePad(a: Agent): boolean {
     for (const o of this.state.obstacles) {
       if (o.kind !== 'pad') continue;
-      if (Math.abs(a.y - o.h) > 0.12) continue;
+      if (Math.abs(a.y - topOf(o)) > 0.12) continue;
       if (Math.abs(a.x - o.x) > o.hw + C.AGENT_RADIUS * 0.6) continue;
       if (Math.abs(a.z - o.z) > o.hd + C.AGENT_RADIUS * 0.6) continue;
       return true;
@@ -480,33 +484,83 @@ export class Game {
         continue;
       }
 
+      // 縦は先。持ち手の足元の高さへ箱を合わせてから、水平に動かす。
+      // 順序を逆にすると、跳んだ瞬間はまだ箱が地面の高さにあるので
+      // 積みたい箱の真上へ運べない。
+      o.vy = 0;
+      if (o.y !== a.y && this.canPlaceObstacle(o, o.x, o.z, a.y)) o.y = a.y;
+
       const maxStep = C.GRAB_SPEED * C.DT;
       const dx = clamp(a.x + a.grabOffX - o.x, -maxStep, maxStep);
       const dz = clamp(a.z + a.grabOffZ - o.z, -maxStep, maxStep);
       if (dx === 0 && dz === 0) continue;
 
-      if (this.canPlaceObstacle(o, o.x + dx, o.z + dz)) {
+      if (this.canPlaceObstacle(o, o.x + dx, o.z + dz, o.y)) {
         o.x += dx;
         o.z += dz;
-      } else if (this.canPlaceObstacle(o, o.x + dx, o.z)) {
+      } else if (this.canPlaceObstacle(o, o.x + dx, o.z, o.y)) {
         o.x += dx;
-      } else if (this.canPlaceObstacle(o, o.x, o.z + dz)) {
+      } else if (this.canPlaceObstacle(o, o.x, o.z + dz, o.y)) {
         o.z += dz;
       }
     }
   }
 
-  private canPlaceObstacle(o: Obstacle, x: number, z: number): boolean {
+  /**
+   * 手を離した箱を落とす。真下に別の箱があればその上面で止まり、積み上がる。
+   * 支えより上に浮いている箱だけが対象なので、地面に置かれた箱は素通りする。
+   */
+  private settleObstacles(dt: number): void {
+    for (const o of this.state.obstacles) {
+      if (o.kind !== 'box' || o.heldBy >= 0) continue;
+      const rest = this.supportUnder(o);
+      if (o.y <= rest + 1e-6) {
+        // 下の箱が抜かれて宙に浮いた場合、rest が上がることもある。
+        if (o.y < rest) o.y = rest;
+        o.vy = 0;
+        continue;
+      }
+      o.vy -= C.GRAVITY * dt;
+      o.y += o.vy * dt;
+      if (o.y <= rest) {
+        o.y = rest;
+        o.vy = 0;
+      }
+    }
+  }
+
+  /** 箱の真下にある支えの高さ。何も無ければ地面（0）。 */
+  private supportUnder(o: Obstacle): number {
+    let best = 0;
+    for (const other of this.state.obstacles) {
+      if (other.id === o.id) continue;
+      if (other.kind === 'ramp' || other.kind === 'pad') continue;
+      if (!boxesOverlap(o, o.x, o.z, other)) continue;
+      const top = topOf(other);
+      // 自分の底より上にある面には載れない（横の壁の上面などを拾わない）。
+      if (top <= o.y + C.STEP_HEIGHT && top > best) best = top;
+    }
+    return best;
+  }
+
+  private canPlaceObstacle(o: Obstacle, x: number, z: number, y: number): boolean {
     if (Math.abs(x) + o.hw > C.ARENA_HALF || Math.abs(z) + o.hd > C.ARENA_HALF) return false;
     for (const other of this.state.obstacles) {
       if (other.id === o.id) continue;
       if (other.kind === 'ramp') continue;
-      if (boxesOverlap(o, x, z, other)) return false;
+      // ジャンプ台は薄いので高さで見ると「上に載せられる」判定になってしまうが、
+      // 塞ぐと踏めなくなるので、従来どおり footprint ごと置けないままにする。
+      if (other.kind === 'pad') {
+        if (boxesOverlap(o, x, z, other)) return false;
+        continue;
+      }
+      if (obstaclesCollide(o, x, z, y, other)) return false;
     }
     // 他のエージェントを押し潰さない。掴んでいる本人は判定から外す。
     for (const a of this.state.agents) {
       if (a.caught || a.id === o.heldBy) continue;
-      if (a.y >= o.h - 0.05) continue; // 上に乗っている場合は無視
+      if (a.y >= y + o.h - 0.05) continue; // 上に乗っている場合は無視
+      if (a.y + C.AGENT_HEIGHT <= y) continue; // 頭上を通す場合も無視
       if (
         Math.abs(a.x - x) < o.hw + C.AGENT_RADIUS * 0.9 &&
         Math.abs(a.z - z) < o.hd + C.AGENT_RADIUS * 0.9
