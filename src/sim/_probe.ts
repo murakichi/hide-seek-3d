@@ -1,187 +1,159 @@
 // 一時的な計測スクリプト（改善サイクル用・使い捨て）。
-// 追跡フェーズで実際に何が起きているかを人数構成ごとに出す。
+// issue #002「逃走が壁沿いの往復になり、鬼の前を何度も横切る」を数値で確かめる。
 //
-//   npx tsx src/sim/_probe.ts
+// 測るもの:
+//   - 壁沿い: 逃走中に壁まで 6m 未満だったティックの割合
+//   - 折り返し: 進行方向が 1.5 秒前と 120 度以上ずれた回数
+//   - 往復: 6〜20 秒前に居た場所から 5m 以内へ戻った回数
+//   - その往復の直後（3 秒以内）に再発見された回数
+//   - 煙幕が実戦で使われているか（issue #002 の未計測項目）
 //
-// 【視界】隠れることが機能しているか
-//   初発見までの秒数 / 視線を切った回数 / 切ってから再発見までの秒数 / 見られている割合
-// 【追走】追われている間に距離が開くことがあるか
-//   鬼との平均距離 / 両者のダッシュ使用率とスタミナ / 距離が開いた窓の割合
+// 使い方: npx tsx src/sim/_probe.ts <hiders> <seekers> [seed0]
 
 import { AiDirector } from '../ai/director';
 import { DEFAULT_PARAMS } from '../ai/params';
-import { DT, HUNT_TIME, PREP_TIME } from '../core/config';
+import { ARENA_HALF, DT, HUNT_TIME, PREP_TIME } from '../core/config';
 import { Game } from '../core/game';
-import type { MatchConfig } from '../core/types';
+import type { Agent, GameState, MatchConfig } from '../core/types';
 import { canSee } from '../core/vision';
 
 const MAX_TICKS = Math.ceil((PREP_TIME + HUNT_TIME + 2) / DT);
-const GAMES = 30;
-/** 「追われている」とみなす距離 */
-const CHASE_DIST = 14;
-/** 距離の増減を見る窓（5 秒） */
-const WINDOW = Math.round(5 / DT);
+const GAMES = 40;
+const HIDERS = Number(process.argv[2] ?? 1);
+const SEEKERS = Number(process.argv[3] ?? 1);
+const SEED0 = Number(process.argv[4] ?? 1234);
+const TRIGGER = DEFAULT_PARAMS.hider.fleeTriggerDist;
 
-interface HiderLog {
-  firstSeen: number | null;
-  seenTicks: number;
-  losBreaks: number;
-  /** 視線を切ってから次に見つかるまでの秒 */
-  freeSpans: number[];
-  caughtAt: number | null;
-  survivedAfterSeen: number | null;
+/** hider.ts の knownThreats を再現して、逃走モードかどうかを判定する。 */
+function fleeing(s: GameState, agent: Agent): boolean {
+  let best = Infinity;
+  for (const a of s.agents) {
+    if (a.team !== 'seeker' || a.caught) continue;
+    let pos: { x: number; z: number } | null = null;
+    if (canSee(s, agent, a)) pos = { x: a.x, z: a.z };
+    else {
+      const rec = s.memory.hider.get(a.id);
+      if (rec && s.time - rec.t < 4) pos = { x: rec.x, z: rec.z };
+    }
+    if (pos) best = Math.min(best, Math.hypot(pos.x - agent.x, pos.z - agent.z));
+  }
+  return best < TRIGGER;
 }
 
-const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+let fleeTicks = 0;
+let wallTicks = 0;
+let reversals = 0;
+let revisits = 0;
+let revisitThenSeen = 0;
+let detects = 0;
+let smokeUsed = 0;
+let smokeHeldAtCatch = 0;
+let caught = 0;
+let wallGapAtCatch = 0;
 
-function run(hiders: number, seekers: number) {
-  const logs: HiderLog[] = [];
-  let huntTicks = 0;
-  let wins = 0;
+const TRAIL = Math.round(20 / DT);
+const REV_LAG = Math.round(1.5 / DT);
 
-  let chaseTicks = 0;
-  let distSum = 0;
-  let hiderDashTicks = 0;
-  let seekerDashTicks = 0;
-  let hiderStamina = 0;
-  let seekerStamina = 0;
-  let windows = 0;
-  let widened = 0;
-  /** 鬼に見られているのに、逃げる側は鬼を 1 人も把握できていないティック */
-  let unawareTicks = 0;
-  let seenTicksTotal = 0;
+for (let g = 0; g < GAMES; g++) {
+  const config: MatchConfig = {
+    hiders: HIDERS,
+    seekers: SEEKERS,
+    playerTeam: null,
+    seed: SEED0 + g * 7919,
+  };
+  const game = new Game(config);
+  const ai = new AiDirector(game, DEFAULT_PARAMS);
 
-  for (let i = 0; i < GAMES; i++) {
-    const config: MatchConfig = { hiders, seekers, playerTeam: null, seed: 1234 + i * 7919 };
-    const game = new Game(config);
-    const ai = new AiDirector(game, DEFAULT_PARAMS);
+  const trail = new Map<number, Array<{ x: number; z: number; t: number }>>();
+  const heading = new Map<number, Array<{ x: number; z: number }>>();
+  const lastRevisit = new Map<number, number>();
+  const wasSeen = new Map<number, boolean>();
+  const prevSmoke = new Map<number, number>();
+  const prevCaught = new Set<number>();
+
+  for (let t = 0; t < MAX_TICKS; t++) {
+    const actions = ai.tick();
     const s = game.state;
 
-    const log = new Map<number, HiderLog>();
-    const wasSeen = new Map<number, boolean>();
-    const freeSince = new Map<number, number>();
-    const distHist = new Map<number, number[]>();
-    let huntStart: number | null = null;
-
-    for (const a of s.agents) {
-      if (a.team !== 'hider') continue;
-      log.set(a.id, {
-        firstSeen: null,
-        seenTicks: 0,
-        losBreaks: 0,
-        freeSpans: [],
-        caughtAt: null,
-        survivedAfterSeen: null,
-      });
-      wasSeen.set(a.id, false);
-      distHist.set(a.id, []);
-    }
-
-    // 最後の 1 人が捕まった瞬間に phase が over になる。その ticks も見ないと
-    // 1v1 の「発見から捕獲まで」が空になる。
-    let ended = false;
-    for (let t = 0; t < MAX_TICKS && !ended; t++) {
-      const actions = ai.tick();
-      game.step(actions);
-      if (s.phase === 'over') ended = true;
-      if (s.phase !== 'hunt' && huntStart === null) continue;
-      if (huntStart === null) {
-        huntStart = s.time;
-        for (const id of log.keys()) freeSince.set(id, s.time);
-      }
-      huntTicks++;
-
-      const seekersAlive = s.agents.filter((k) => k.team === 'seeker' && !k.caught);
-
+    if (s.phase === 'hunt') {
+      const seekers = s.agents.filter((a) => a.team === 'seeker' && !a.caught);
       for (const a of s.agents) {
-        if (a.team !== 'hider') continue;
-        const l = log.get(a.id)!;
-        if (a.caught) {
-          if (l.caughtAt === null) {
-            l.caughtAt = s.time;
-            if (l.firstSeen !== null) l.survivedAfterSeen = s.time - huntStart - l.firstSeen;
+        if (a.team !== 'hider' || a.caught) continue;
+
+        const ps = prevSmoke.get(a.id);
+        if (ps !== undefined && a.smokeCharges < ps) smokeUsed++;
+        prevSmoke.set(a.id, a.smokeCharges);
+
+        const isFlee = fleeing(s, a);
+        if (isFlee) {
+          fleeTicks++;
+          const gap = Math.min(ARENA_HALF - Math.abs(a.x), ARENA_HALF - Math.abs(a.z));
+          if (gap < 6) wallTicks++;
+        }
+
+        // 進行方向の折り返し
+        const hs = heading.get(a.id) ?? [];
+        const speed = Math.hypot(a.vx, a.vz);
+        hs.push(speed > 1 ? { x: a.vx / speed, z: a.vz / speed } : { x: 0, z: 0 });
+        if (hs.length > REV_LAG + 1) hs.shift();
+        if (isFlee && hs.length > REV_LAG) {
+          const old = hs[0];
+          const now = hs[hs.length - 1];
+          const mag = Math.hypot(old.x, old.z) * Math.hypot(now.x, now.z);
+          if (mag > 0.5 && old.x * now.x + old.z * now.z < -0.5) reversals++;
+        }
+        heading.set(a.id, hs);
+
+        // 往復: 6〜20 秒前の自分の位置へ 5m 以内まで戻った
+        const tr = trail.get(a.id) ?? [];
+        if (isFlee && s.time - (lastRevisit.get(a.id) ?? -99) > 3) {
+          for (const pt of tr) {
+            const age = s.time - pt.t;
+            if (age < 6 || age > 20) continue;
+            if (Math.hypot(pt.x - a.x, pt.z - a.z) < 5) {
+              revisits++;
+              lastRevisit.set(a.id, s.time);
+              break;
+            }
           }
-          continue;
         }
+        tr.push({ x: a.x, z: a.z, t: s.time });
+        if (tr.length > TRAIL) tr.shift();
+        trail.set(a.id, tr);
 
-        const seen = game.visible.seeker.has(a.id);
-        if (seen) {
-          seenTicksTotal++;
-          // 逃げる側が把握している脅威（HiderBrain.knownThreats と同じ条件）。
-          // 遮蔽は逃げる側の索敵にも効くので、遮蔽を増やすとここが増えうる。
-          const knows = seekersAlive.some((k) => {
-            const rec = s.memory.hider.get(k.id);
-            return canSee(s, a, k) || (rec !== undefined && s.time - rec.t < 4);
-          });
-          if (!knows) unawareTicks++;
-          l.seenTicks++;
-          if (l.firstSeen === null) l.firstSeen = s.time - huntStart;
-          if (!wasSeen.get(a.id)) l.freeSpans.push(s.time - (freeSince.get(a.id) ?? s.time));
-        } else if (wasSeen.get(a.id)) {
-          l.losBreaks++;
-          freeSince.set(a.id, s.time);
+        const visible = seekers.some((k) => canSee(s, k, a));
+        if (visible && !(wasSeen.get(a.id) ?? false)) {
+          detects++;
+          if (s.time - (lastRevisit.get(a.id) ?? -99) < 3) revisitThenSeen++;
         }
-        wasSeen.set(a.id, seen);
-
-        if (!seekersAlive.length) continue;
-        const near = Math.min(...seekersAlive.map((k) => Math.hypot(k.x - a.x, k.z - a.z)));
-        if (near > CHASE_DIST) continue;
-
-        chaseTicks++;
-        distSum += near;
-        if (actions.get(a.id)?.dash) hiderDashTicks++;
-        hiderStamina += a.stamina;
-        const chaser = seekersAlive.reduce((m, k) =>
-          Math.hypot(k.x - a.x, k.z - a.z) < Math.hypot(m.x - a.x, m.z - a.z) ? k : m,
-        );
-        if (actions.get(chaser.id)?.dash) seekerDashTicks++;
-        seekerStamina += chaser.stamina;
-
-        const h = distHist.get(a.id)!;
-        h.push(near);
-        if (h.length > WINDOW) {
-          windows++;
-          if (h[h.length - 1] > h[h.length - 1 - WINDOW] + 0.5) widened++;
-        }
+        wasSeen.set(a.id, visible);
       }
     }
 
-    if (s.winner === 'hider') wins++;
-    for (const [id, l] of log) {
-      if (l.caughtAt === null && wasSeen.get(id) === false) {
-        l.freeSpans.push(s.time - (freeSince.get(id) ?? s.time));
-      }
-      logs.push(l);
+    game.step(actions);
+
+    for (const a of game.state.agents) {
+      if (a.team !== 'hider' || !a.caught || prevCaught.has(a.id)) continue;
+      prevCaught.add(a.id);
+      caught++;
+      smokeHeldAtCatch += a.smokeCharges;
+      wallGapAtCatch += Math.min(ARENA_HALF - Math.abs(a.x), ARENA_HALF - Math.abs(a.z));
     }
+    if (game.state.phase === 'over') break;
   }
-
-  const seenLogs = logs.filter((l) => l.firstSeen !== null);
-  const survived = logs.filter((l) => l.survivedAfterSeen !== null);
-  const neverSeen = logs.filter((l) => l.firstSeen === null).length;
-  const escaped = seenLogs.filter((l) => l.caughtAt === null).length;
-  const seenSec = logs.reduce((a, l) => a + l.seenTicks * DT, 0);
-
-  const pct = (n: number, d: number) => `${((n / Math.max(1, d)) * 100).toFixed(1)}%`;
-
-  console.log(`\n=== ${hiders}v${seekers}  ${GAMES} 試合  逃げ側勝率 ${pct(wins, GAMES)} ===`);
-  console.log(`  見られているのに鬼を把握できていない ${pct(unawareTicks, seenTicksTotal)}`);
-  console.log(`  [視界] 逃走者 ${logs.length} 人`);
-  console.log(`    一度も見つからず  ${neverSeen} 人`);
-  console.log(`    見つかって逃げ切り ${escaped} / ${seenLogs.length} 人 (${pct(escaped, seenLogs.length)})`);
-  console.log(`    初発見まで        ${avg(seenLogs.map((l) => l.firstSeen!)).toFixed(1)} 秒（追跡開始から）`);
-  console.log(`    発見から捕獲まで  ${avg(survived.map((l) => l.survivedAfterSeen!)).toFixed(1)} 秒`);
-  console.log(`    視線切り回数      ${avg(seenLogs.map((l) => l.losBreaks)).toFixed(2)} 回/人`);
-  console.log(`    切ってから再発見  ${avg(logs.flatMap((l) => l.freeSpans.slice(1))).toFixed(1)} 秒`);
-  console.log(`    見られている割合  ${pct(seenSec, huntTicks * DT)}`);
-  console.log(`  [追走] ${CHASE_DIST}m 以内 ${(chaseTicks * DT).toFixed(0)} 秒`);
-  console.log(`    平均距離          ${(distSum / Math.max(1, chaseTicks)).toFixed(1)} m`);
-  console.log(`    逃 ダッシュ率     ${pct(hiderDashTicks, chaseTicks)}  ` +
-    `平均スタミナ ${(hiderStamina / Math.max(1, chaseTicks)).toFixed(0)}`);
-  console.log(`    鬼 ダッシュ率     ${pct(seekerDashTicks, chaseTicks)}  ` +
-    `平均スタミナ ${(seekerStamina / Math.max(1, chaseTicks)).toFixed(0)}`);
-  console.log(`    5 秒で距離が開いた ${pct(widened, windows)}`);
 }
 
-run(1, 1);
-run(2, 2);
-run(3, 3);
+const pct = (n: number, d: number): string => `${((n / Math.max(1, d)) * 100).toFixed(1)}%`;
+console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合 (seed0=${SEED0})`);
+console.log(`  逃走モードのティック: ${fleeTicks}`);
+console.log(`    壁まで 6m 未満: ${wallTicks} (${pct(wallTicks, fleeTicks)})  ※面積比なら 47%`);
+console.log(`    折り返し(1.5 秒で 120 度超): ${reversals}`);
+console.log(`  往復(6〜20 秒前の位置へ 5m 以内に戻った): ${revisits}`);
+console.log(`  発見イベント: ${detects}`);
+console.log(`    直前 3 秒に往復していた: ${revisitThenSeen} (${pct(revisitThenSeen, detects)})`);
+console.log(`  煙幕の使用: ${smokeUsed} 回`);
+console.log(`  捕獲: ${caught}`);
+console.log(`    捕獲時に残っていた煙幕: 平均 ${(smokeHeldAtCatch / Math.max(1, caught)).toFixed(2)} 回ぶん`);
+console.log(
+  `    捕獲地点の壁までの距離: 平均 ${(wallGapAtCatch / Math.max(1, caught)).toFixed(1)}m  ※一様なら 7.3m`,
+);
