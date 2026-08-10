@@ -6,6 +6,11 @@ import tuned from './tuned.json';
 export interface SeekerParams {
   /** 追跡時にダッシュを使う距離のしきい値 */
   chaseDashDist: number;
+  /**
+   * 追跡時に相手の進路を何秒先まで読んで回り込むか。
+   * 0 だと相手の現在位置をそのまま追う（＝後ろについて回るだけになる）。
+   */
+  chaseLeadTime: number;
   /** 直近目撃をどれだけ信用し続けるか（秒） */
   memoryTrust: number;
   /** 巡回目標を選ぶときの「距離」ペナルティ係数 */
@@ -50,6 +55,7 @@ export interface AiParams {
 const BASE_PARAMS: AiParams = {
   seeker: {
     chaseDashDist: 14,
+    chaseLeadTime: 0.6,
     memoryTrust: 6,
     patrolDistWeight: 0.55,
     lockedBoxLure: 8,
