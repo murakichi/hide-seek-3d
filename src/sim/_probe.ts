@@ -13,6 +13,7 @@ import { DEFAULT_PARAMS } from '../ai/params';
 import { DT, HUNT_TIME, PREP_TIME } from '../core/config';
 import { Game } from '../core/game';
 import type { MatchConfig } from '../core/types';
+import { canSee } from '../core/vision';
 
 const MAX_TICKS = Math.ceil((PREP_TIME + HUNT_TIME + 2) / DT);
 const GAMES = 30;
@@ -46,6 +47,9 @@ function run(hiders: number, seekers: number) {
   let seekerStamina = 0;
   let windows = 0;
   let widened = 0;
+  /** 鬼に見られているのに、逃げる側は鬼を 1 人も把握できていないティック */
+  let unawareTicks = 0;
+  let seenTicksTotal = 0;
 
   for (let i = 0; i < GAMES; i++) {
     const config: MatchConfig = { hiders, seekers, playerTeam: null, seed: 1234 + i * 7919 };
@@ -102,6 +106,14 @@ function run(hiders: number, seekers: number) {
 
         const seen = game.visible.seeker.has(a.id);
         if (seen) {
+          seenTicksTotal++;
+          // 逃げる側が把握している脅威（HiderBrain.knownThreats と同じ条件）。
+          // 遮蔽は逃げる側の索敵にも効くので、遮蔽を増やすとここが増えうる。
+          const knows = seekersAlive.some((k) => {
+            const rec = s.memory.hider.get(k.id);
+            return canSee(s, a, k) || (rec !== undefined && s.time - rec.t < 4);
+          });
+          if (!knows) unawareTicks++;
           l.seenTicks++;
           if (l.firstSeen === null) l.firstSeen = s.time - huntStart;
           if (!wasSeen.get(a.id)) l.freeSpans.push(s.time - (freeSince.get(a.id) ?? s.time));
@@ -152,6 +164,7 @@ function run(hiders: number, seekers: number) {
   const pct = (n: number, d: number) => `${((n / Math.max(1, d)) * 100).toFixed(1)}%`;
 
   console.log(`\n=== ${hiders}v${seekers}  ${GAMES} 試合  逃げ側勝率 ${pct(wins, GAMES)} ===`);
+  console.log(`  見られているのに鬼を把握できていない ${pct(unawareTicks, seenTicksTotal)}`);
   console.log(`  [視界] 逃走者 ${logs.length} 人`);
   console.log(`    一度も見つからず  ${neverSeen} 人`);
   console.log(`    見つかって逃げ切り ${escaped} / ${seenLogs.length} 人 (${pct(escaped, seenLogs.length)})`);

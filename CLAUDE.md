@@ -8,7 +8,7 @@
 作業のたびに次を回す。
 
 1. **`docs/journal/` の直近 2〜3 件を読む。** 前回の続きと、試して駄目だった案を把握する。
-   `docs/issues/` に open の件があれば、優先度の高いものから拾う。
+   open な issue があれば、優先度の高いものから拾う（`gh issue list --label hider` など）。
 2. **worktree を切る。** `EnterWorktree` でその作業用の worktree を作り、その中で編集する。
    メインの作業ディレクトリで直接編集しない。名前は作業内容が分かるものにする
    （`fix-*`, `tune-*`, `feat-*`, `setup-*` など）。
@@ -16,11 +16,12 @@
    EnterWorktree({ name: "fix-hauling-stuck" })
    ```
 3. **1 サイクルで直すのは 1 つ。** 途中で別の問題に気づいたら、その場で直さずに
-   `docs/issues/` に新しい issue を立てる。
+   `gh issue create` で新しい issue を立てる。
 4. **`docs/journal/YYYY-MM-DD.md` に追記する。** やったこと・分かったこと・次にやること。
    価値があるのは「うまくいかなかったこと」と「意外だったこと」。成功した変更の内容自体は
    git log に残るので繰り返さない。
-5. **issue を更新する。** 直ったら `status: closed` にして「解決」節を書く。閉じた issue は消さない。
+5. **issue を更新する。** 分かったことは `gh issue comment` で追記する。
+   直ったら「何が原因で、どう直したか」をコメントしてから `gh issue close` する。
 6. **PR を作る。** master を取り込んでから作業ブランチを push し、`gh pr create` する。
    master へ直接マージしない。
    ```bash
@@ -34,7 +35,28 @@
    **衝突を解決したら勝率を測り直す。** 個別に良い変更でも、組み合わせると悪化することがある。
 7. `ExitWorktree` で抜ける。PR のレビューとマージは `/review-prs` が行う。
 
-書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
+日記の書き方は `docs/journal/README.md`。
+
+**issue は GitHub issue を使う**（`docs/issues/` は廃止した）。
+
+```bash
+gh issue list                          # open な件
+gh issue list --label hider            # 担当で絞る（seeker / hider / balance）
+gh issue view 10                       # 中身を読む
+gh issue create --title "..." --body "..." --label "hider,priority:high"
+gh issue comment 10 --body "..."       # 分かったことを追記
+gh issue close 10 --comment "..."      # 原因と直し方を書いてから閉じる
+```
+
+ラベルは**担当**（`seeker` / `hider` / `balance`）と**優先度**（`priority:high` /
+`priority:medium` / `priority:low`）を必ず付ける。担当ラベルが、どのループが拾うかを決める。
+
+本文は次の 4 つを書く。**数値やトレース出力を添えて、次に読む人が再現できる形にする。**
+
+- **症状** — 観測できる事実
+- **分かっていること** — 調べた範囲。試して駄目だった案とその理由
+- **分かっていないこと** — 次に確かめるべきこと
+- **参考** — 関連する日記・ログ・ソース
 
 ## 改善のループ
 
@@ -49,8 +71,8 @@
 | `/review-prs` | PR の取り込み | 衝突の解決、軽微な修正 | 中身を読まないマージ |
 
 行動の 2 つは**ゲームルールを変えない**。速度や視界を変えないと解けないと判断したら、
-config は触らずに `docs/issues/` に issue を立てる。そのとき**行動側で何を試して駄目だったか**を
-必ず書く。それが無いとルールを変える判断ができない。
+config は触らずに `balance` ラベルを付けた issue を立てる。そのとき
+**行動側で何を試して駄目だったか**を必ず書く。それが無いとルールを変える判断ができない。
 
 `/improve-balance` はその issue を引き取る唯一のループで、定数の調整に加えて
 **機能の追加・廃止**も行う。逆に、行動で解ける問題を issue で受けたら行動側へ差し戻す。

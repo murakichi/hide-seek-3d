@@ -60,7 +60,8 @@ git checkout master && git fetch origin && git merge --ff-only origin/master
 `docs/journal/` の直近 2〜3 件と `docs/balance-log.md` を読む。
 **過去にどの定数をどちらへ動かして何が起きたか**を把握する。同じ調整を往復しない。
 
-`docs/issues/` から、行動サイクルが立てた「ルールの限界」issue を優先度順に 1 つ選ぶ。
+`gh issue list --label balance` から、行動サイクルが立てた「ルールの限界」issue を
+優先度順（`priority:high` から）に 1 つ選ぶ。
 無ければ手順 1 の測定で、目標（全構成 35〜50%）から最も外れている構成を対象にする。
 
 `EnterWorktree` で worktree を切る（`balance-*` など）。
@@ -143,7 +144,8 @@ npm run dev
 - `docs/balance-log.md` — **変更した定数・前後の値・理由・全構成の勝率（前回値つき）**。
   ルール変更はここが最も重要な記録になる
 - `docs/journal/YYYY-MM-DD.md` — やったこと・分かったこと・次にやること
-- `docs/issues/` — 引き取った issue を `status: closed` にして「解決」節を書く。
+- GitHub issue — 引き取った issue に `gh issue comment` で結果を書く。直ったら
+  原因と直し方をコメントしてから `gh issue close`。
   行動側に差し戻すならその旨をコメントとして追記し、open のまま残す
 
 ```bash
