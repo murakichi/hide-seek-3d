@@ -32,7 +32,7 @@ git checkout master && git fetch origin && git merge --ff-only origin/master
 ```
 
 `docs/journal/` の直近 2〜3 件を読む。前回の「次にやること」と、**試して駄目だった案**を
-把握する（同じ案を再発明しない）。`docs/issues/` に逃げる側の open な件があれば、
+把握する（同じ案を再発明しない）。`gh issue list --label hider` に open な件があれば、
 優先度の高いものから 1 つ選ぶ。無ければ手順 1 の測定で一番低い構成を対象にする。
 
 `EnterWorktree` でこの作業用の worktree を切る（`fix-hider-*` など）。以降の編集はその中で行う。
@@ -87,7 +87,8 @@ npm run trace -- --hiders 3 --seekers 3 --find-loss --interval 5
 - `docs/journal/YYYY-MM-DD.md` — やったこと・分かったこと・次にやること。
   **試して駄目だった案とその理由**を必ず残す
 - `docs/balance-log.md` — 変更・理由・勝率（前回値つき）
-- `docs/issues/` — 着手した issue に追記。直ったら `status: closed` にして「解決」節を書く
+- GitHub issue — 着手した件に `gh issue comment` で追記。直ったら原因と直し方を
+  コメントしてから `gh issue close`
 
 ### 6. PR を作る
 
@@ -114,7 +115,8 @@ gh pr create --title "..." --body "..."
 - 準備時間が短すぎて、箱を運ぶ戦術がそもそも成立しない
 
 issue には**行動側で何を試して駄目だったか**を書く。それが無いと、
-ルールを変える判断ができない。`docs/issues/README.md` の形式に従い、
+ルールを変える判断ができない。`gh issue create --label "balance,priority:high"` で立てる。
+CLAUDE.md の「issue は GitHub issue を使う」の形式に従い、
 `priority` と、変更を提案するルール（どの定数をどちらへ）を明記する。
 
 ルール変更そのものは人間が判断する。このサイクルでは行わない。

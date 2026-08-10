@@ -24,7 +24,7 @@ gh pr list --state open
 同じ場所を触る PR が 4 件以上になって解決不能になりやすい。
 残っていれば `/review-prs` を先に済ませてから次へ進む。
 
-`docs/journal/` の直近 2〜3 件と `docs/issues/` の open な件を読み、
+`docs/journal/` の直近 2〜3 件と `gh issue list` の open な件を読み、
 各ループに渡す「今回の狙い」を決める。
 
 ### 2. 現状を測る

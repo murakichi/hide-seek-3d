@@ -1,6 +1,6 @@
 // フィールド生成。シードから決定論的に障害物を並べる。
 
-import { ARENA_HALF, SEEKER_CAGE_RADIUS } from './config';
+import { ARENA_HALF, BOX_HEIGHT_BIG, BOX_HEIGHT_SMALL, SEEKER_CAGE_RADIUS } from './config';
 import { Rng } from './rng';
 import type { Obstacle, ObstacleKind, Pickup } from './types';
 
@@ -110,7 +110,7 @@ export function buildArena(seed: number, scale: number): Obstacle[] {
     const big = rng.next() < 0.4;
     const hw = big ? rng.range(1.1, 1.5) : rng.range(0.65, 0.9);
     const hd = big ? rng.range(1.1, 1.5) : rng.range(0.65, 0.9);
-    const h = big ? 2.2 : 1.3;
+    const h = big ? BOX_HEIGHT_BIG : BOX_HEIGHT_SMALL;
     const p = scatterPos(rng, obstacles, hw, hd);
     if (!p) continue;
     obstacles.push(make('box', p.x, p.z, hw, hd, h));
