@@ -35,6 +35,8 @@ export interface HiderParams {
   fleeCoverBonus: number;
   /** 逃走先スコア：直前に選んだ方向から向きを変えることの代償（1 ラジアンあたり） */
   fleeTurnCost: number;
+  /** 逃走先スコア：箱を乗り越える向きを選ぶことの代償（登る間だけ足が止まる） */
+  fleeClimbCost: number;
   /** 準備終了の何秒前に拠点へ戻るか */
   retreatMargin: number;
   /** 拠点に籠もるか、動き回るかの傾向（0=静止, 1=遊動） */
@@ -69,6 +71,7 @@ const BASE_PARAMS: AiParams = {
     fleeDistWeight: 1,
     fleeCoverBonus: 14,
     fleeTurnCost: 30,
+    fleeClimbCost: 20,
     retreatMargin: 3,
     roamBias: 0.25,
     threatMemory: 10,
