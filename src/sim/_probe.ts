@@ -1,26 +1,31 @@
-// 一時的な計測スクリプト（改善サイクル用・使い捨て）。
-// 追跡フェーズで「鬼が近いのに逃げる入力が出ていない」ティックを数える。
+// 改善サイクル用の使い捨て計測スクリプト。調べたいことに合わせて中身を書き換える。
+// 使い方: npx tsx src/sim/_probe.ts <hiders> <seekers>
+//
+// 今の計測: 逃走モード中に速度が出ているか。逃げる側は鬼より足が速い設定なので、
+// 追われている間の平均速度が鬼を下回っていたら、速度負けではなく走り方の問題。
 
 import { AiDirector } from '../ai/director';
 import { DEFAULT_PARAMS } from '../ai/params';
-import { ARENA_HALF, DT, EYE_HEIGHT, HUNT_TIME, PREP_TIME } from '../core/config';
+import { DT, HIDER_SPEED, HUNT_TIME, PREP_TIME, SEEKER_SPEED } from '../core/config';
 import { Game } from '../core/game';
 import type { MatchConfig } from '../core/types';
+import { canSee } from '../core/vision';
 
 const MAX_TICKS = Math.ceil((PREP_TIME + HUNT_TIME + 2) / DT);
 const GAMES = 24;
 const HIDERS = Number(process.argv[2] ?? 1);
 const SEEKERS = Number(process.argv[3] ?? 1);
-const TRIGGER = DEFAULT_PARAMS.hider.fleeTriggerDist;
+const P = DEFAULT_PARAMS.hider;
 
-let threatTicks = 0;
-let frozenTicks = 0;
-let frozenNearWall = 0;
-let frozenNearBox = 0;
-/** 硬直がどのくらい続いたか（連続ティック数の分布） */
-const runs: number[] = [];
-let caughtWhileFrozen = 0;
-let caught = 0;
+/** 鬼に見られているのに、逃げる側は鬼を感知していない時間 */
+const unaware = { n: 0, spd: 0 };
+/** 逃走モード（脅威を感知している）の時間 */
+const fleeing = { n: 0, spd: 0, seekerSpd: 0, dash: 0, gap: 0 };
+/** 指示方向の振れ */
+let turnSum = 0;
+let turnN = 0;
+let bigTurns = 0;
+const lastDir = new Map<number, number>();
 
 for (let i = 0; i < GAMES; i++) {
   const config: MatchConfig = {
@@ -31,71 +36,77 @@ for (let i = 0; i < GAMES; i++) {
   };
   const game = new Game(config);
   const ai = new AiDirector(game, DEFAULT_PARAMS);
-  const run = new Map<number, number>();
-  const wasFrozen = new Map<number, boolean>();
-  const prevCaught = new Set<number>();
 
   for (let t = 0; t < MAX_TICKS; t++) {
     const actions = ai.tick();
     const s = game.state;
 
     if (s.phase === 'hunt') {
+      const seekers = s.agents.filter((k) => k.team === 'seeker' && !k.caught);
       for (const a of s.agents) {
         if (a.team !== 'hider' || a.caught) continue;
-        const near = Math.min(
-          ...s.agents
-            .filter((k) => k.team === 'seeker' && !k.caught)
-            .map((k) => Math.hypot(k.x - a.x, k.z - a.z)),
-        );
-        if (near > TRIGGER) {
-          if ((run.get(a.id) ?? 0) > 0) runs.push(run.get(a.id)!);
-          run.set(a.id, 0);
-          wasFrozen.set(a.id, false);
+
+        // 逃げる側が把握している脅威（HiderBrain.knownThreats と同じ条件）
+        let known = Infinity;
+        for (const k of seekers) {
+          const rec = s.memory.hider.get(k.id);
+          const remembered = rec !== undefined && s.time - rec.t < 4;
+          if (canSee(s, a, k) || remembered) {
+            known = Math.min(known, Math.hypot(k.x - a.x, k.z - a.z));
+          }
+        }
+        const spd = Math.hypot(a.vx, a.vz);
+        const act = actions.get(a.id);
+
+        if (known >= P.fleeTriggerDist) {
+          if (seekers.some((k) => canSee(s, k, a))) {
+            unaware.n++;
+            unaware.spd += spd;
+          }
           continue;
         }
-        threatTicks++;
-        const act = actions.get(a.id);
-        const mag = act ? Math.hypot(act.moveX, act.moveZ) : 0;
-        if (mag < 0.05) {
-          frozenTicks++;
-          run.set(a.id, (run.get(a.id) ?? 0) + 1);
-          wasFrozen.set(a.id, true);
-          const wallGap = Math.min(ARENA_HALF - Math.abs(a.x), ARENA_HALF - Math.abs(a.z));
-          if (wallGap < 3) frozenNearWall++;
-          let boxNear = false;
-          for (const o of s.obstacles) {
-            if (o.kind === 'ramp' || o.kind === 'pad' || o.kind === 'wall') continue;
-            if (Math.hypot(o.x - a.x, o.z - a.z) < 3.2) boxNear = true;
+
+        const near = seekers.reduce((b, k) =>
+          Math.hypot(k.x - a.x, k.z - a.z) < Math.hypot(b.x - a.x, b.z - a.z) ? k : b,
+        );
+        fleeing.n++;
+        fleeing.spd += spd;
+        fleeing.seekerSpd += Math.hypot(near.vx, near.vz);
+        fleeing.gap += Math.hypot(near.x - a.x, near.z - a.z);
+        if (act?.dash) fleeing.dash++;
+
+        if (act && Math.hypot(act.moveX, act.moveZ) > 0.05) {
+          const ang = Math.atan2(act.moveX, act.moveZ);
+          const prev = lastDir.get(a.id);
+          if (prev !== undefined) {
+            let d = ang - prev;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            turnSum += Math.abs(d);
+            turnN++;
+            if (Math.abs(d) > Math.PI / 2) bigTurns++;
           }
-          if (boxNear) frozenNearBox++;
-        } else {
-          if ((run.get(a.id) ?? 0) > 0) runs.push(run.get(a.id)!);
-          run.set(a.id, 0);
-          wasFrozen.set(a.id, false);
+          lastDir.set(a.id, ang);
         }
       }
     }
 
     game.step(actions);
-
-    for (const a of game.state.agents) {
-      if (a.team !== 'hider' || !a.caught || prevCaught.has(a.id)) continue;
-      prevCaught.add(a.id);
-      caught++;
-      if (wasFrozen.get(a.id)) caughtWhileFrozen++;
-    }
     if (game.state.phase === 'over') break;
   }
-  for (const v of run.values()) if (v > 0) runs.push(v);
 }
 
-runs.sort((a, b) => b - a);
-const longest = runs.slice(0, 5).map((r) => (r * DT).toFixed(1));
-console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合  (EYE=${EYE_HEIGHT})`);
-console.log(`  鬼が ${TRIGGER}m 以内にいたティック: ${threatTicks}`);
+const avg = (sum: number, n: number): string => (sum / Math.max(1, n)).toFixed(2);
+console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合   (最高速度 逃 ${HIDER_SPEED} / 鬼 ${SEEKER_SPEED} m/s)`);
 console.log(
-  `  そのうち移動入力ゼロ: ${frozenTicks} (${((frozenTicks / Math.max(1, threatTicks)) * 100).toFixed(1)}%)  ` +
-    `壁際 ${frozenNearWall} / 箱の近く ${frozenNearBox}`,
+  `  見られているのに気づいていない: ${(unaware.n * DT).toFixed(0)} 秒  平均速度 ${avg(unaware.spd, unaware.n)}`,
 );
-console.log(`  硬直の最長 5 件(秒): ${longest.join(', ')}`);
-console.log(`  捕獲 ${caught} 件のうち、硬直中に捕まった: ${caughtWhileFrozen}`);
+console.log(`  逃走モード: ${(fleeing.n * DT).toFixed(0)} 秒`);
+console.log(`    逃げる側の平均速度 ${avg(fleeing.spd, fleeing.n)} m/s`);
+console.log(`    鬼の平均速度       ${avg(fleeing.seekerSpd, fleeing.n)} m/s`);
+console.log(`    ダッシュ指示の割合 ${((fleeing.dash / Math.max(1, fleeing.n)) * 100).toFixed(1)}%`);
+console.log(`    平均の間合い       ${avg(fleeing.gap, fleeing.n)} m`);
+console.log(
+  `    指示方向の振れ ${(((turnSum / Math.max(1, turnN)) * 180) / Math.PI).toFixed(1)} 度/tick` +
+    `  90 度超の切り返し ${((bigTurns / Math.max(1, turnN)) * 100).toFixed(1)}%`,
+);
