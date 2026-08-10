@@ -97,7 +97,15 @@ npm run tune -- --side hider --iters 1 --games 24 --seed 777 --dry-run
   `status: closed` にして「解決」節を書く。**途中で気づいた別の問題は
   その場で直さず、新しい issue を立てる。**
 
-最後に `ExitWorktree` で抜け、master にマージする。
+最後にブランチを push して PR を作る。master へ直接マージしない。
+
+```bash
+git push -u origin <ブランチ名>
+gh pr create --title "..." --body "..."
+```
+
+PR 本文には**何を直したか・トレースで観測した事実・勝率の前後（1v1 / 2v2 / 3v3）**を書く。
+レビューとマージは `/review-prs` が行う。作り終えたら `ExitWorktree` で抜ける。
 
 ### 6. 改善が見つからなかった場合
 
