@@ -102,23 +102,42 @@ function where(hiders: number, seekers: number, games: number): void {
   console.log(`  捕獲された地点から        ${mean(catchDist).toFixed(1)} m  (n=${catchDist.length})`);
 }
 
-/** 鬼のパラメータを 1 つ振って、逃げ側勝率がどう動くかを見る。 */
+/**
+ * 鬼のパラメータを 1 つ振って、逃げ側勝率がどう動くかを見る。
+ * シードは複数渡して合算する。1 シードだと 3v3 で符号が反転することがある。
+ */
 function sweep(
   key: keyof typeof DEFAULT_PARAMS.seeker,
   hiders: number,
   seekers: number,
   games: number,
   values: number[],
-  seed0: number,
+  seeds: number[],
 ): void {
-  console.log(`${hiders}v${seekers} / ${games} 試合 (seed0=${seed0})  seeker.${key} の掃引`);
+  console.log(
+    `${hiders}v${seekers} / ${games} 試合 × ${seeds.length} シード = ${games * seeds.length} 試合  seeker.${key} の掃引`,
+  );
   for (const v of values) {
     const params = cloneParams(DEFAULT_PARAMS);
     params.seeker[key] = v;
-    const r = runSeries(games, hiders, seekers, params, seed0);
+    let wins = 0;
+    let total = 0;
+    let catchSum = 0;
+    let catchN = 0;
+    const parts: string[] = [];
+    for (const seed of seeds) {
+      const r = runSeries(games, hiders, seekers, params, seed);
+      wins += r.hiderWins;
+      total += r.games;
+      if (r.avgFirstCatch !== null) {
+        catchSum += r.avgFirstCatch;
+        catchN++;
+      }
+      parts.push((r.hiderWinRate * 100).toFixed(1));
+    }
     console.log(
-      `  ${key}=${String(v).padStart(4)}  逃げ側勝率 ${(r.hiderWinRate * 100).toFixed(1).padStart(5)}%  ` +
-        `生存 ${r.avgSurvivors.toFixed(2)}  初補足 ${r.avgFirstCatch?.toFixed(1) ?? '—'} 秒`,
+      `  ${key}=${String(v).padStart(4)}  逃げ側勝率 ${((wins / total) * 100).toFixed(1).padStart(5)}%  ` +
+        `初補足 ${catchN ? (catchSum / catchN).toFixed(1) : '—'} 秒  [シード別 ${parts.join(' / ')}]`,
     );
   }
 }
@@ -209,8 +228,8 @@ const games = Number(process.argv[5] ?? 48);
 if (MODE === 'sweep') {
   const key = (process.argv[6] ?? 'lockedBoxLure') as keyof typeof DEFAULT_PARAMS.seeker;
   const values = (process.argv[7] ?? '0,4,8,12').split(',').map(Number);
-  const seed0 = Number(process.argv[8] ?? 1234);
-  sweep(key, hiders, seekers, games, values, seed0);
+  const seeds = (process.argv[8] ?? '1234,555001,90210').split(',').map(Number);
+  sweep(key, hiders, seekers, games, values, seeds);
 } else if (MODE === 'shake') {
   shake(hiders, seekers, games);
 } else {
