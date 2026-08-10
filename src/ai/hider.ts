@@ -334,8 +334,12 @@ export class HiderBrain {
       const dir = this.fleeDirection(ctx, agent, threats);
       act.moveX = dir.mx;
       act.moveZ = dir.mz;
-      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz);
       this.path = [];
+
+      // 囲まれて速度が出ないときは、乗り越えて抜けることを試みる。
+      const speed = Math.hypot(agent.vx, agent.vz);
+      this.stuckTimer = speed < HIDER_SPEED * 0.3 ? this.stuckTimer + DT : 0;
+      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz) || this.stuckTimer > 0.4;
 
       // 迫られている間は相手を見て、回り込みに反応できるようにする。
       const closest = threats.reduce((best, t) =>
@@ -412,6 +416,9 @@ export class HiderBrain {
 
     let bestDir = { mx: 0, mz: 0 };
     let bestScore = -Infinity;
+    // 全方向が塞がっていたときのために、一番遠くまで進める方向を控えておく。
+    let fallbackDir = { mx: 0, mz: 0 };
+    let fallbackClear = -1;
     const samples = Math.max(8, Math.round(p.fleeSamples));
 
     for (let i = 0; i < samples; i++) {
@@ -429,6 +436,19 @@ export class HiderBrain {
         if (ctx.nav.isBlockedWorld(px, pz)) break;
         clear = t;
       }
+      // 脅威から遠ざかる向きを優先して控える。塞がれていても、
+      // 壁ずりで抜けられることがあるので停止よりはるかにまし。
+      let awayness = 0;
+      for (const t of threats) {
+        const len = Math.hypot(t.x - agent.x, t.z - agent.z) || 1;
+        awayness -= ((t.x - agent.x) / len) * dx + ((t.z - agent.z) / len) * dz;
+      }
+      const fallbackValue = clear + awayness;
+      if (fallbackValue > fallbackClear) {
+        fallbackClear = fallbackValue;
+        fallbackDir = { mx: dx, mz: dz };
+      }
+
       if (clear < 2) continue;
 
       const px = agent.x + dx * clear;
@@ -479,6 +499,10 @@ export class HiderBrain {
         bestDir = { mx: dx, mz: dz };
       }
     }
+
+    // どの向きにも「走れる」と言えるだけの空きが無かった場合。
+    // ここで停止すると、箱に囲まれたまま何十秒も固まって狩られる。
+    if (bestScore === -Infinity) return fallbackDir;
     return bestDir;
   }
 
