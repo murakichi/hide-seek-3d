@@ -1,0 +1,96 @@
+// エントリポイント。固定タイムステップでゲームを進め、描画と UI を同期する。
+
+import { AiDirector } from './ai/director';
+import { DT } from './core/config';
+import { Game } from './core/game';
+import type { Action, MatchConfig } from './core/types';
+import { InputManager } from './input';
+import { Renderer } from './render/renderer';
+import { GameView } from './render/view';
+import { Hud } from './ui/hud';
+import { Menu, type MenuResult } from './ui/menu';
+
+const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
+const uiRoot = document.getElementById('ui-root') as HTMLDivElement;
+
+const renderer = new Renderer(canvas);
+const input = new InputManager(canvas);
+
+let game: Game | null = null;
+let ai: AiDirector | null = null;
+let view: GameView | null = null;
+let lastSetup: MenuResult | null = null;
+
+let speed = 1;
+const hud = new Hud(
+  uiRoot,
+  () => start(lastSetup!),
+  () => toMenu(),
+  (m) => {
+    speed = m;
+  },
+);
+hud.hide();
+
+/** 自分で操作していない試合か。観戦を選んだ場合と、捕まって観戦に回った場合。 */
+function isSpectating(g: Game): boolean {
+  if (g.state.config.playerTeam === null) return true;
+  return g.playerAgent?.caught ?? false;
+}
+
+// 観戦中はキー 1〜4 でも早送りできる。
+window.addEventListener('keydown', (e) => {
+  if (game && isSpectating(game)) hud.cycleSpeedByKey(e.code);
+});
+
+const menu = new Menu(uiRoot, (r) => start(r));
+
+function toMenu(): void {
+  hud.hide();
+  menu.show();
+}
+
+function start(setup: MenuResult): void {
+  lastSetup = setup;
+  const config: MatchConfig = Menu.toConfig(setup, (Math.random() * 0xffffff) | 0);
+  game = new Game(config);
+  ai = new AiDirector(game);
+  if (view) view.build(game);
+  else view = new GameView(renderer, game);
+  hud.show();
+}
+
+let accumulator = 0;
+let lastTime = performance.now();
+
+function frame(now: number): void {
+  requestAnimationFrame(frame);
+
+  const elapsed = Math.min((now - lastTime) / 1000, 0.25);
+  lastTime = now;
+
+  if (game && ai && view) {
+    // 早送りは「同じ固定ステップを 1 フレームで多く回す」ことで実現する。
+    // dt を伸ばすとシミュレーションの結果自体が変わってしまう。
+    const rate = isSpectating(game) ? speed : 1;
+    accumulator += elapsed * rate;
+    let steps = 0;
+    const maxSteps = 5 * rate;
+    while (accumulator >= DT && steps < maxSteps) {
+      accumulator -= DT;
+      steps++;
+      const actions: Map<number, Action> = ai.tick();
+      const player = game.playerAgent;
+      if (player && !player.caught) {
+        actions.set(player.id, input.buildAction(renderer.camera, player.x, player.z));
+      }
+      game.step(actions);
+    }
+    view.sync(game, game.state.config.playerTeam);
+    hud.update(game);
+  }
+
+  renderer.render();
+}
+
+requestAnimationFrame(frame);
