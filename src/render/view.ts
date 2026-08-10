@@ -188,7 +188,7 @@ export class GameView {
     );
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.position.set(o.x, o.h / 2, o.z);
+    mesh.position.set(o.x, o.y + o.h / 2, o.z);
     this.root.add(mesh);
     this.obstacleMeshes.set(o.id, mesh);
 
@@ -269,11 +269,12 @@ export class GameView {
       const mesh = this.obstacleMeshes.get(o.id);
       if (mesh) {
         mesh.position.x = o.x;
+        mesh.position.y = o.y + o.h / 2;
         mesh.position.z = o.z;
       }
       const ring = this.lockRings.get(o.id);
       if (ring) {
-        ring.position.set(o.x, o.h + 0.12, o.z);
+        ring.position.set(o.x, o.y + o.h + 0.12, o.z);
         if (o.lockedBy) {
           ring.visible = true;
           (ring.material as THREE.MeshBasicMaterial).color.setHex(

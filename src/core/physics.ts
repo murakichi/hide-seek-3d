@@ -1,8 +1,13 @@
 // 幾何・衝突のプリミティブ。状態を持たない純関数だけを置く。
 
 import { rampHeightAt } from './arena';
-import { STEP_HEIGHT } from './config';
+import { AGENT_HEIGHT, STEP_HEIGHT } from './config';
 import type { Obstacle } from './types';
+
+/** 障害物の上面の高さ。 */
+export function topOf(o: Obstacle): number {
+  return o.y + o.h;
+}
 
 export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -49,7 +54,9 @@ export function pushCircleOutOfBox(
 export function blocksHorizontally(o: Obstacle, feetY: number): boolean {
   // 斜面は登れるので、ジャンプ台は踏めるように、どちらも通過扱いにする。
   if (o.kind === 'ramp' || o.kind === 'pad') return false;
-  return o.h > feetY + STEP_HEIGHT;
+  // 頭より上に浮いている箱の下はくぐれる。持ち上げた箱が壁にならないようにする。
+  if (o.y >= feetY + AGENT_HEIGHT) return false;
+  return topOf(o) > feetY + STEP_HEIGHT;
 }
 
 /**
@@ -73,16 +80,38 @@ export function supportHeight(
     }
     // 上面に乗るのは、円の中心が矩形の少し外側までに収まっているとき。
     if (Math.abs(x - o.x) > o.hw + r * 0.7 || Math.abs(z - o.z) > o.hd + r * 0.7) continue;
-    if (o.h <= feetY + STEP_HEIGHT && o.h > best) best = o.h;
+    const top = topOf(o);
+    if (top <= feetY + STEP_HEIGHT && top > best) best = top;
   }
   return best;
 }
 
-/** AABB 同士が重なるか（掴んだ箱を動かすときの判定用）。 */
+/** AABB 同士が水平に重なるか。 */
 export function boxesOverlap(a: Obstacle, ax: number, az: number, b: Obstacle, margin = 0): boolean {
   return (
     Math.abs(ax - b.x) < a.hw + b.hw + margin && Math.abs(az - b.z) < a.hd + b.hd + margin
   );
+}
+
+/**
+ * 箱を (x, z, y) に置いたとき、別の障害物とぶつかるか。
+ *
+ * 垂直の重なりが `STEP_HEIGHT` 以内なら「上に乗っている」とみなして通す。
+ * エージェントが段差を乗り越えるのと同じ許容で、これがあるから
+ * ジャンプの頂点（1.29 m）から高さ 1.3 m の箱の上へ載せられる。
+ * 大きい箱（2.2 m）の上に載せるには、この許容では届かないのでジャンプ台が要る。
+ */
+export function obstaclesCollide(
+  a: Obstacle,
+  ax: number,
+  az: number,
+  ay: number,
+  b: Obstacle,
+  margin = 0,
+): boolean {
+  if (!boxesOverlap(a, ax, az, b, margin)) return false;
+  const overlap = Math.min(ay + a.h, topOf(b)) - Math.max(ay, b.y);
+  return overlap > STEP_HEIGHT;
 }
 
 /** レイと AABB の交差判定（slab method）。垂直方向も見るので箱を飛び越えた視線は通る。 */
@@ -98,7 +127,7 @@ function raySegmentHitsBox(
 ): boolean {
   const bounds = [
     [o.x - o.hw, o.x + o.hw],
-    [0, o.h],
+    [o.y, o.y + o.h],
     [o.z - o.hd, o.z + o.hd],
   ];
   const org = [ox, oy, oz];

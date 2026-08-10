@@ -50,10 +50,17 @@ export interface Obstacle {
   kind: ObstacleKind;
   x: number;
   z: number;
+  /**
+   * 底面の高さ。0 なら地面に置かれている。
+   * 掴んだまま跳ぶと持ち上がり、放すと落ちる。他の箱の上で止まれば積み上がる。
+   */
+  y: number;
+  /** 落下速度（掴まれていない箱だけが使う） */
+  vy: number;
   /** X 方向の半幅 / Z 方向の半奥行き */
   hw: number;
   hd: number;
-  /** 高さ（上面の Y） */
+  /** 厚み。上面は `y + h`。地面置きなら `y` が 0 なので上面 = h */
   h: number;
   /** ロックしているチーム。null なら誰でも動かせる */
   lockedBy: Team | null;
