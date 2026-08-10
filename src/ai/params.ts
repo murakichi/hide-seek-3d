@@ -33,6 +33,8 @@ export interface HiderParams {
   fleeDistWeight: number;
   /** 逃走先スコア：鬼から見えない場所のボーナス */
   fleeCoverBonus: number;
+  /** 逃走先スコア：直前に選んだ方向から向きを変えることの代償（1 ラジアンあたり） */
+  fleeTurnCost: number;
   /** 準備終了の何秒前に拠点へ戻るか */
   retreatMargin: number;
   /** 拠点に籠もるか、動き回るかの傾向（0=静止, 1=遊動） */
@@ -62,6 +64,7 @@ const BASE_PARAMS: AiParams = {
     fleeSamples: 24,
     fleeDistWeight: 1,
     fleeCoverBonus: 14,
+    fleeTurnCost: 30,
     retreatMargin: 3,
     roamBias: 0.25,
   },
