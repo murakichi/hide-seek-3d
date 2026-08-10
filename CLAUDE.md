@@ -36,7 +36,7 @@
 
 書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
 
-## 改善の 3 つのループ
+## 改善のループ
 
 改善は担当を分けて回す。**どのループも 1 サイクルで直すのは 1 つ**、
 終わりに PR を作り、マージは `/review-prs` が行う。
@@ -46,6 +46,7 @@
 | `/improve-seeker` | 鬼の行動 | `src/ai/seeker.ts`、params の seeker 側 | `src/core`、逃げる側 |
 | `/improve-hider` | 逃げる側の行動 | `src/ai/hider.ts`、params の hider 側 | `src/core`、鬼側 |
 | `/improve-balance` | ゲームルール | `src/core/config.ts`、機能の追加・廃止 | AI の戦術そのもの |
+| `/review-prs` | PR の取り込み | 衝突の解決、軽微な修正 | 中身を読まないマージ |
 
 行動の 2 つは**ゲームルールを変えない**。速度や視界を変えないと解けないと判断したら、
 config は触らずに `docs/issues/` に issue を立てる。そのとき**行動側で何を試して駄目だったか**を
@@ -56,6 +57,7 @@ config は触らずに `docs/issues/` に issue を立てる。そのとき**行
 
 どれを回すべきかの判断は `/improve` が引き受ける。現状を測って担当を選び、
 そのループを呼ぶだけの司令塔で、自分ではコードを直さない。
+**PR が 2 件以上積まれていれば、まず `/review-prs` を回す**（溜めると衝突が増えるため）。
 
 ```bash
 /loop /improve           # 司令塔。測って判断し、適切なループを 1 つ回す（通常はこれ）
