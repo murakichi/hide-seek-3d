@@ -122,9 +122,12 @@ function main(): void {
   const games = arg('games', 30);
   const hiders = arg('hiders', 2);
   const seekers = arg('seekers', 2);
+  // シードを変えられないと同じ試合列でしか測れず、「たまたま」を排除できない。
+  // 変更の採否は、複数シードで向きが揃うかを見て決めること。
+  const seed = arg('seed', 1234);
 
-  console.log(`${hiders}v${seekers} を ${games} 試合...`);
-  const r = runSeries(games, hiders, seekers);
+  console.log(`${hiders}v${seekers} を ${games} 試合 (seed=${seed})...`);
+  const r = runSeries(games, hiders, seekers, undefined, seed);
 
   console.log('');
   console.log(`  逃げ側勝率   ${(r.hiderWinRate * 100).toFixed(1)}%  (${r.hiderWins}/${r.games})`);

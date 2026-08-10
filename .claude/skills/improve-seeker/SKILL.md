@@ -32,7 +32,7 @@ git checkout master && git fetch origin && git merge --ff-only origin/master
 ```
 
 `docs/journal/` の直近 2〜3 件を読む。前回の「次にやること」と、**試して駄目だった案**を
-把握する。`docs/issues/` に鬼側の open な件があれば、優先度の高いものから 1 つ選ぶ。
+把握する。`gh issue list --label seeker` に open な件があれば、優先度の高いものから 1 つ選ぶ。
 無ければ手順 1 の測定で、鬼の勝率が一番低い構成を対象にする。
 
 `EnterWorktree` でこの作業用の worktree を切る（`fix-seeker-*` など）。
@@ -49,11 +49,19 @@ npm run sim -- --games 80 --hiders 3 --seekers 3
 `初補足まで` の秒数が、鬼の探索効率を最も素直に表す。ここが縮めば探索が改善している。
 
 3 構成すべてを見る。**24 試合では判断できない。** 同じコードでも 3v3 は 24 試合と
-80 試合で 20 ポイント以上ずれた実績がある。採否を決めるなら**最低 80 試合、
-できれば 2 シード**。シードを変えるには `_probe.ts` の `sweep`（`seed0` を取る）を使う。
+80 試合で 20 ポイント以上ずれた実績がある。
+
+```bash
+npx tsx src/sim/_ab.ts 1 1 100   # 採否の判断はこれ（100 試合 × 3 シード）
+npx tsx src/sim/_sweep.ts sweep 1 1 80 chaseLeadTime 0,0.6,1.2,2 1234   # 当たりを付ける
+```
+
+`_sweep.ts` で値の当たりを付け、`_ab.ts` で採否を決める、という順で使う。
 
 単発の勝率差より、**3 構成が揃って同じ向きに動いていること**の方が強い証拠になる。
 1 構成だけ大きく動いて他が逆向きなら、それはたいていノイズ。
+**シードで符号が反転する変更は採用しない**（実際、追跡中に補給パックへ寄り道する案は
+3v3 で seed を変えると -18.8 と +2.5 に割れたので取り下げた）。
 
 ### 2. 逃げ切られた試合をトレースで見る
 
@@ -97,7 +105,8 @@ npm run trace -- --hiders 2 --seekers 2 --find-win --interval 5
 - `docs/journal/YYYY-MM-DD.md` — やったこと・分かったこと・次にやること。
   **試して駄目だった案とその理由**を必ず残す
 - `docs/balance-log.md` — 変更・理由・勝率（前回値つき）
-- `docs/issues/` — 着手した issue に追記。直ったら `status: closed` にして「解決」節を書く
+- GitHub issue — 着手した件に `gh issue comment` で追記。直ったら原因と直し方を
+  コメントしてから `gh issue close`
 
 ### 6. PR を作る
 
