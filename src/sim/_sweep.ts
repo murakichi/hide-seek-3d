@@ -1,14 +1,17 @@
-// 鬼のパラメータを振って効きを見る計測スクリプト（改善サイクル用）。
+// AI パラメータを振って効きを見る計測スクリプト（改善サイクル用）。
 //
 // `_ab.ts` が「変更前後」を 3 シードで比べるのに対し、こちらは
 // **1 つのパラメータを複数の値で振って**当たりを付けるためのもの。
 // 値を決めたら `_ab.ts` で採否を確かめる、という順で使う。
 //
-//   npx tsx src/sim/_sweep.ts sweep 1 1 80 chaseLeadTime 0,0.6,1.2,2 1234
+//   npx tsx src/sim/_sweep.ts sweep 1 1 100 seeker.chaseLeadTime 0,0.6,1.2,2
+//   npx tsx src/sim/_sweep.ts sweep 3 3 60  hider.fleeClimbCost 0,20,40
 //   npx tsx src/sim/_sweep.ts shake 3 3 48   視線を切ったあと何 m 離れられているか
 //   npx tsx src/sim/_sweep.ts where 1 1 48   発見地点がロック箱にどれだけ寄っているか
 //
-// 掃引の結果は必ず 2 シード以上で確かめること。1 シードだと 3v3 で符号が反転する。
+// シードは既定で 1234 / 555001 / 90210 の 3 つを合算する。
+// **1 シードだけで判断しない。** 3v3 は同じ変更でシードによって符号が反転する
+// （補給パックへの寄り道が -18.8 と +2.5 に割れた実績がある）。
 
 import { AiDirector } from '../ai/director';
 import { cloneParams, DEFAULT_PARAMS } from '../ai/params';
@@ -107,7 +110,8 @@ function where(hiders: number, seekers: number, games: number): void {
  * シードは複数渡して合算する。1 シードだと 3v3 で符号が反転することがある。
  */
 function sweep(
-  key: keyof typeof DEFAULT_PARAMS.seeker,
+  side: 'seeker' | 'hider',
+  key: string,
   hiders: number,
   seekers: number,
   games: number,
@@ -115,11 +119,13 @@ function sweep(
   seeds: number[],
 ): void {
   console.log(
-    `${hiders}v${seekers} / ${games} 試合 × ${seeds.length} シード = ${games * seeds.length} 試合  seeker.${key} の掃引`,
+    `${hiders}v${seekers} / ${games} 試合 × ${seeds.length} シード = ${games * seeds.length} 試合  ${side}.${key} の掃引`,
   );
   for (const v of values) {
     const params = cloneParams(DEFAULT_PARAMS);
-    params.seeker[key] = v;
+    const target = params[side] as unknown as Record<string, number>;
+    if (!(key in target)) throw new Error(`${side} に ${key} は無い`);
+    target[key] = v;
     let wins = 0;
     let total = 0;
     let catchSum = 0;
@@ -226,10 +232,14 @@ const seekers = Number(process.argv[4] ?? 1);
 const games = Number(process.argv[5] ?? 48);
 
 if (MODE === 'sweep') {
-  const key = (process.argv[6] ?? 'lockedBoxLure') as keyof typeof DEFAULT_PARAMS.seeker;
-  const values = (process.argv[7] ?? '0,4,8,12').split(',').map(Number);
+  // "seeker.chaseLeadTime" のように side を前置きする（省略時は seeker）。
+  const spec = process.argv[6] ?? 'seeker.chaseLeadTime';
+  const dot = spec.indexOf('.');
+  const side = dot < 0 ? 'seeker' : (spec.slice(0, dot) as 'seeker' | 'hider');
+  const key = dot < 0 ? spec : spec.slice(dot + 1);
+  const values = (process.argv[7] ?? '0,0.6,1.2,2').split(',').map(Number);
   const seeds = (process.argv[8] ?? '1234,555001,90210').split(',').map(Number);
-  sweep(key, hiders, seekers, games, values, seeds);
+  sweep(side, key, hiders, seekers, games, values, seeds);
 } else if (MODE === 'shake') {
   shake(hiders, seekers, games);
 } else {
