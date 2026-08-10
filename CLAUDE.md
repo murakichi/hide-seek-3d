@@ -21,18 +21,78 @@
    価値があるのは「うまくいかなかったこと」と「意外だったこと」。成功した変更の内容自体は
    git log に残るので繰り返さない。
 5. **issue を更新する。** 直ったら `status: closed` にして「解決」節を書く。閉じた issue は消さない。
-6. **PR を作る。** 作業ブランチを push して `gh pr create` する。master へ直接マージしない。
+6. **PR を作る。** master を取り込んでから作業ブランチを push し、`gh pr create` する。
+   master へ直接マージしない。
    ```bash
+   git fetch origin && git merge origin/master   # 衝突はここで解決しておく
+   npm run build
    git push -u origin worktree-fix-hauling-stuck
    gh pr create --fill
    ```
    本文には**何を直したか・なぜそう判断したか（観測した事実）・勝率の前後**を書く。
    AI やバランスを触ったなら 1v1 / 2v2 / 3v3 の数字を必ず添える。
+   **衝突を解決したら勝率を測り直す。** 個別に良い変更でも、組み合わせると悪化することがある。
 7. `ExitWorktree` で抜ける。PR のレビューとマージは `/review-prs` が行う。
 
 書き方の詳細は `docs/journal/README.md` と `docs/issues/README.md`。
-AI とバランスの改善は `/improve-ai` スキルがこの手順をなぞる。
-`/loop /improve-ai` で改善を回し、`/loop /review-prs` で PR を取り込む。
+
+## 改善のループ
+
+改善は担当を分けて回す。**どのループも 1 サイクルで直すのは 1 つ**、
+終わりに PR を作り、マージは `/review-prs` が行う。
+
+| ループ | 担当 | 触ってよい | 触らない |
+| --- | --- | --- | --- |
+| `/improve-seeker` | 鬼の行動 | `src/ai/seeker.ts`、params の seeker 側 | `src/core`、逃げる側 |
+| `/improve-hider` | 逃げる側の行動 | `src/ai/hider.ts`、params の hider 側 | `src/core`、鬼側 |
+| `/improve-balance` | ゲームルール | `src/core/config.ts`、機能の追加・廃止 | AI の戦術そのもの |
+| `/review-prs` | PR の取り込み | 衝突の解決、軽微な修正 | 中身を読まないマージ |
+
+行動の 2 つは**ゲームルールを変えない**。速度や視界を変えないと解けないと判断したら、
+config は触らずに `docs/issues/` に issue を立てる。そのとき**行動側で何を試して駄目だったか**を
+必ず書く。それが無いとルールを変える判断ができない。
+
+`/improve-balance` はその issue を引き取る唯一のループで、定数の調整に加えて
+**機能の追加・廃止**も行う。逆に、行動で解ける問題を issue で受けたら行動側へ差し戻す。
+
+### 回し方
+
+**逐次** — `/improve` が現状を測って担当を 1 つ選び、そのループを呼ぶ。
+自分ではコードを直さない司令塔。PR が 2 件以上積まれていれば、まず `/review-prs` を回す。
+
+```bash
+/loop /improve            # 1 回のサイクルで 1 ループ。安定して回したいときはこれ
+```
+
+**並列** — `/improve-parallel` が 3 つのループをサブエージェントで同時に走らせ、
+出てきた PR をその場で審査して取り込む。1 ラウンドで 3 ループぶん進むが、
+そのぶんトークンを多く使い、衝突の解決が主な仕事になる。
+
+```bash
+/loop /improve-parallel   # 3 つ同時に改善 → レビュー → マージを 1 ラウンドとして回す
+```
+
+並列で作られた PR は、それぞれ**別々の状態で勝率を測っている**。
+組み合わせた状態は誰も測っていないので、衝突を解決したら必ず測り直す。
+「個別には改善、合わせると悪化」は実際に起きる。
+
+**個別** — 直したい対象がはっきりしているとき。
+
+```bash
+/loop /improve-seeker    # 攻撃側
+/loop /improve-hider     # 防御側
+/loop /improve-balance   # ゲームバランス
+/loop /review-prs        # 積まれた PR を取り込む
+```
+
+4 つのターミナルで別々に走らせることもできる（`/loop /improve-seeker` を 1 つ、
+`/loop /improve-hider` を 1 つ…という形）。この場合、各ループは自分で worktree を切り、
+PR 作成前に master を取り込むので作業自体は衝突しないが、**PR の衝突は必ず起きる**ので
+`/loop /review-prs` を 1 本立てて取り込み役にすること。
+
+同時に回すと `src/ai` の同じ場所で衝突するので、各ループは作業前に master を取り込み、
+PR 作成前にもう一度取り込む。解決後は**勝率を測り直す**（個別に良い変更でも
+組み合わせて悪化することがある）。
 
 master に push されると GitHub Pages へ自動デプロイされる
 （<https://murakichi.github.io/hide-seek-3d/>）。PR には CI（型チェック・ビルド・
@@ -48,7 +108,7 @@ npm run trace -- --find-loss --interval 5        # 1 試合の展開を詳細ロ
 npm run tune  -- --side hider --iters 30         # AI パラメータの自動探索
 ```
 
-AI やバランスを直すときは `/improve-ai` スキルの手順に従う
+AI やバランスを直すときは上の 3 つのループのいずれかの手順に従う
 （測定 → トレース精査 → 原因を 1 つ修正 → 再測定 → 記録）。
 
 ## 構成

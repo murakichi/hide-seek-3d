@@ -19,16 +19,62 @@ gh pr list --state open
 無ければ何もせず終了する（「PR はありません」とだけ報告する）。
 複数あるときは古い順に 1 件ずつ処理する。
 
-### 2. 中身を確認する
+### 2. 中身とマージ可否を確認する
 
 ```bash
 gh pr view <番号>
 gh pr diff <番号>
 gh pr checks <番号>
+gh pr view <番号> --json mergeable,mergeStateStatus -q '.mergeable + " / " + .mergeStateStatus'
 ```
 
 CI が走っていない、または失敗しているなら、ログを見て原因を書く。
 失敗したままマージしない。
+
+`mergeable` が `CONFLICTING` なら手順 2.5 へ。`UNKNOWN` は GitHub が判定中なので、
+少し待ってから引き直す。
+
+### 2.5 コンフリクトを解決する
+
+改善サイクルを並行して回すと、`src/ai` の同じ関数を複数の PR が触って必ず衝突する。
+**PR の作者に投げ返さず、ここで解決する**（`/loop` で回している以上、投げ返す相手がいない）。
+
+```bash
+git fetch origin
+git checkout <ブランチ名>
+git merge origin/master
+```
+
+解決の方針はファイルによって違う。
+
+- **`docs/journal/*.md`、`docs/balance-log.md`** — どちらも追記なので**両方残す**。
+  時刻順に並べ直すだけでよい。片方を捨てない。
+- **`docs/issues/*.md`** — 同じ issue を両方が更新していたら、観測した事実は両方残す。
+  status は「片方が closed なら closed」。
+- **`src/ai` のロジック** — 両方の意図を保つ。片方の変更を落とすと、その PR が
+  報告している勝率が意味を失う。どうしても両立しないなら、**新しい方を採らずに**
+  マージを中止し（`git merge --abort`）、PR にどちらを取るべきか判断を仰ぐコメントを残す。
+- **`src/ai/tuned.json`** — 自動探索の出力なので機械的にはマージできない。
+  片方を選んだうえで、手順 3 の再測定を必ず行う。
+
+```bash
+git add -A && git commit --no-edit
+npm run build          # 型が通ることを先に確かめる
+git push
+```
+
+**解決したら勝率を測り直す。** これが最も重要。2 つの変更が個別に良くても、
+組み合わせると悪化することがある（例: 片方が逃走方向の選び方を変え、
+もう片方が速度を変えていると、先読み距離の前提が崩れる）。
+
+```bash
+npm run sim -- --games 24 --hiders 1 --seekers 1
+npm run sim -- --games 24 --hiders 2 --seekers 2
+npm run sim -- --games 24 --hiders 3 --seekers 3
+```
+
+PR 本文の数字と食い違ったら、実測値を PR にコメントで残し、
+退行しているならマージせず保留する。
 
 ### 3. 差分を審査する
 
@@ -73,3 +119,5 @@ gh pr list --state open
 
 処理した PR ごとに、番号・タイトル・判断（マージ / 保留）・理由を 1 行で報告する。
 保留したものは何が足りないかを明示する。
+コンフリクトを解決したなら、何と何が衝突してどう解決したか、
+再測定した勝率が PR の申告とどう違ったかを添える。
