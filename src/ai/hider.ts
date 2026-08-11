@@ -120,6 +120,19 @@ export class HiderBrain {
     // 無料**で、そこが唯一の弱点だった。
     if (ctx.game.state.phaseTime < p.perchPrepMargin) {
       this.releaseJob();
+      // 高台に着いたら、抱えてきた箱を置く。置いた箱の上面は
+      // 大箱(2.2) + 小箱(1.3) = 3.5 になり、**ジャンプ台の到達高 3.0 すら超える**。
+      // そこまで上がれば、台を使った鬼でも届かない。
+      // 置いたあとは `hopToPerch` がその箱を「今より高い足場」として拾う。
+      if (agent.grounded && agent.y > CATCH_VERTICAL && agent.grabbed >= 0) {
+        act.grab = false;
+        return act;
+      }
+      // 登る前に、積むための箱を抱えておく。掴んだ箱は持ち手の足元に付いてくるので、
+      // ジャンプ台の打ち上げにも一緒に上がる（`onBouncePad` は保持中の箱を見ていない）。
+      if (agent.y <= CATCH_VERTICAL && agent.grabbed < 0 && p.carryToPerch > 0) {
+        if (this.pickCarryBox(ctx, agent, act)) return act;
+      }
       if (this.hopToPerch(ctx, agent, act)) return act;
       if (this.holdHighGround(ctx, agent, act, Infinity)) return act;
     }
@@ -657,6 +670,41 @@ export class HiderBrain {
     act.jump = agent.grounded && best !== null;
     this.path = [];
     this.fleeAngle = null;
+    return true;
+  }
+
+  /**
+   * 高台へ持って上がる箱を掴みに行く。掴みに動いている間 true を返す。
+   *
+   * 積む先の上面は 大箱(2.2) + 小箱(1.3) = 3.5 で、
+   * **今のゲームで到達できる最大高（ジャンプ台の 3.0）を超える。**
+   * そこまで上がれば、台を使った鬼でも登ってこられない。
+   */
+  private pickCarryBox(ctx: AiContext, agent: Agent, act: Action): boolean {
+    const p = ctx.params.hider;
+    const s = ctx.game.state;
+    let best: Obstacle | null = null;
+    let bestD = p.carryToPerch;
+    for (const o of s.obstacles) {
+      if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
+      if (o.hw + o.hd > GRAB_MAX_SIZE) continue;
+      // 自分が登れる高さの箱でないと、そもそも運ぶ前に乗り越えられない。
+      if (o.y + o.h > CLIMB_REACH) continue;
+      const d = Math.hypot(o.x - agent.x, o.z - agent.z);
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    if (!best) return false;
+
+    const approach = this.approachPoint(ctx, best, agent);
+    this.moveTo(ctx, agent, act, approach.x, approach.z, false);
+    act.aimX = best.x - agent.x;
+    act.aimZ = best.z - agent.z;
+    const reach =
+      Math.hypot(best.x - agent.x, best.z - agent.z) - Math.max(best.hw, best.hd) - AGENT_RADIUS;
+    act.grab = reach < GRAB_RANGE;
     return true;
   }
 

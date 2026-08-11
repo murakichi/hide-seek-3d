@@ -29,6 +29,7 @@ const SEEKER_RANGES: Record<string, Range> = {
 const HIDER_RANGES: Record<string, Range> = {
   perchPrepMargin: [4, 20],
   padApproach: [4, 18],
+  carryToPerch: [0, 14],
   gapHopReach: [0, 7],
   perchIsolation: [1.5, 6],
   lockShelter: [0, 1],
