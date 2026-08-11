@@ -14,6 +14,12 @@ export interface RecorderHooks {
   describe?(agentId: number): string;
   /** 逃げる側に割り当てた拠点 */
   shelterOf?(agentId: number): { x: number; z: number } | null;
+  /**
+   * 味方同士の申し合わせ（予約と意図）。
+   * 集計値では「味方が譲り合って両方止まった」「同じ相手に全員が群がった」のような
+   * 事故が見えないので、スナップショットに並べる。
+   */
+  describeCoop?(team: 'seeker' | 'hider'): string;
 }
 
 export interface RecorderOptions {
@@ -168,6 +174,12 @@ export class MatchRecorder {
         })
         .join('  |  ');
       this.push(`  [t=${now} ${s.phase}] ${line}`);
+      const coop = this.opts.hooks?.describeCoop;
+      if (coop) {
+        // 準備フェーズの鬼は檻の中なので申し合わせるものが無い。
+        if (s.phase !== 'prep') this.push(`      鬼   ${coop('seeker')}`);
+        this.push(`      逃   ${coop('hider')}`);
+      }
     }
   }
 

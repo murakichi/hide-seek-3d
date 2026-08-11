@@ -33,6 +33,7 @@ export function trace(config: MatchConfig, opts: TraceOptions): string {
     hooks: {
       describe: (id) => ai.describe(id),
       shelterOf: (id) => ai.shelterOf(id),
+      describeCoop: (team) => ai.describeCoop(team),
     },
   });
 

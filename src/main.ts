@@ -68,6 +68,7 @@ function start(setup: MenuResult): void {
     hooks: {
       describe: (id) => ai!.describe(id),
       shelterOf: (id) => ai!.shelterOf(id),
+      describeCoop: (team) => ai!.describeCoop(team),
     },
   });
   if (view) view.build(game);
