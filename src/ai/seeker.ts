@@ -40,6 +40,17 @@ const LEAP_DROP = 1.2;
  */
 const LEAP_MARGIN = 0.8;
 
+/**
+ * 登坂中に経路探索をやめて直進に切り替える距離。
+ *
+ * 目標が箱の上だと nav では通行不可セルなので `findPath` が経路を返さない。
+ * 直進に切り替わる前に止まってしまうと、そこで詰まって目標を捨てることになる。
+ * **踏み切りが届く距離（ダッシュ時で 4〜5 m）より広く取らないと、
+ * 跳べる位置まで近づく前に動けなくなる。**
+ * 広げすぎると踏み台が遠いうちから直進して途中の箱に突っかかるので、その手前で止める。
+ */
+const CLIMB_APPROACH = 7;
+
 /** 諦めた目標を避け続ける秒数。長すぎると盤面の一部を見なくなる */
 const AVOID_TIME = 12;
 /** 諦めた目標のまわり、この距離までを避ける */
@@ -130,9 +141,16 @@ export class SeekerBrain {
     );
 
     // 相手が高いところへ逃げたら、一段ずつ踏み台を経由して追い上げる。
-    const climbing = prey !== null && prey.y > agent.y + 0.4;
-    if (climbing && prey) {
-      const step = this.climbTarget(ctx, agent, prey);
+    //
+    // 判断の基準は「見えている相手の高さ」ではなく**「目標地点の高さ」**にする。
+    // 相手が見えていることを条件にしていると、見失った瞬間に登る手段が全部止まり、
+    // 高所が探索対象から消える（目撃地点が箱の上だと経路も取れないため）。
+    const targetX = prey ? prey.x : this.goal.x;
+    const targetZ = prey ? prey.z : this.goal.z;
+    const targetY = prey ? prey.y : this.groundHeightAt(ctx, this.goal.x, this.goal.z);
+    const climbing = targetY > agent.y + 0.4;
+    if (climbing) {
+      const step = this.climbTarget(ctx, agent, targetX, targetZ, targetY);
       if (step) this.goal = step;
     }
 
@@ -143,7 +161,7 @@ export class SeekerBrain {
     // 足場そのものが障害物として扱われるので、経路に任せると避けて回り込んでしまう。
     // 逆に踏み台が遠いうちから直進させると、途中の箱に突っかかって止まる。
     const goalDist = Math.hypot(this.goal.x - agent.x, this.goal.z - agent.z);
-    if (!dir && climbing && goalDist < 4.5) {
+    if (!dir && climbing && goalDist < CLIMB_APPROACH) {
       const d = goalDist || 1;
       dir = { mx: (this.goal.x - agent.x) / d, mz: (this.goal.z - agent.z) / d };
     }
@@ -261,6 +279,23 @@ export class SeekerBrain {
   }
 
   /**
+   * その地点で足を置ける高さ。何も無ければ 0（地面）。
+   *
+   * 目撃地点が箱の上なら、その箱の上面が返る。
+   * 「見えている相手の高さ」ではなくこれを登坂の基準にすることで、
+   * **見失ったあとも高所を追える**ようにする。
+   */
+  private groundHeightAt(ctx: AiContext, x: number, z: number): number {
+    let top = 0;
+    for (const o of ctx.game.state.obstacles) {
+      if (Math.abs(x - o.x) > o.hw || Math.abs(z - o.z) > o.hd) continue;
+      const t = o.y + o.h;
+      if (t > top) top = t;
+    }
+    return top;
+  }
+
+  /**
    * 隙間を越えて高い足場へ跳び移るための踏み切り。
    *
    * `shouldJump` は「進行方向のすぐ先が塞がっているか」でしか跳ばない。
@@ -371,10 +406,13 @@ export class SeekerBrain {
   private climbTarget(
     ctx: AiContext,
     agent: Agent,
-    prey: Agent,
+    preyX: number,
+    preyZ: number,
+    preyY: number,
   ): { x: number; z: number } | null {
     // 直接跳び移れるなら回り道は要らない。
-    if (prey.y <= agent.y + CLIMB_REACH) return null;
+    if (preyY <= agent.y + CLIMB_REACH) return null;
+    const prey = { x: preyX, z: preyZ };
 
     let best: Obstacle | null = null;
     let bestScore = Infinity;
