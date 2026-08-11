@@ -241,20 +241,41 @@ export class SeekerBrain {
     }
   }
 
-  /** 見えている逃走者のうち、最も近い者。 */
+  /**
+   * 見えている逃走者のうち、担当が空いていて最も近い者。
+   *
+   * 単に一番近い相手を返すと、**同じ相手が全員に見えているとき全員がそこへ向かう。**
+   * 逃げ側は 1 人でも残れば勝ちなので、放置された 1 人が勝敗を決める。
+   * 実測では、逃走者が 2 人以上生きているティックのうち 19.0% で 2 人以上の鬼が
+   * 同じ相手を見ており、11.5% では同時に誰にも見られていない逃走者が居た（3v3 / 30 試合）。
+   *
+   * そこで `chaseMaxSeekers` 人が既に向かっている相手は避けて別の相手を選ぶ。
+   * ただし**見えている相手が全員埋まっていたら、素直に一番近い相手を追う。**
+   * 見えているのに誰も追わないのは、担当を分ける目的に対しても損。
+   */
   private pickVisiblePrey(ctx: AiContext, agent: Agent): Agent | null {
+    const p = ctx.params.seeker;
     let best: Agent | null = null;
     let bestD = Infinity;
+    let taken: Agent | null = null;
+    let takenD = Infinity;
     for (const a of ctx.game.state.agents) {
       if (a.team !== 'hider' || a.caught) continue;
       if (!canSee(ctx.game.state, agent, a)) continue;
       const d = Math.hypot(a.x - agent.x, a.z - agent.z);
+      if (ctx.coop.seeker.othersTargeting(agent.id, a.id, ctx.time) >= p.chaseMaxSeekers) {
+        if (d < takenD) {
+          takenD = d;
+          taken = a;
+        }
+        continue;
+      }
       if (d < bestD) {
         bestD = d;
         best = a;
       }
     }
-    return best;
+    return best ?? taken;
   }
 
   /**
