@@ -79,7 +79,12 @@ export class SeekerBrain {
     }
 
     if (!this.goal) return act;
-    ctx.seekerGoals.set(agent.id, this.goal);
+    // 味方に「自分はここへ何をしに行く」を掲示する。強制力は無く、参考にされるだけ。
+    ctx.coop.seeker.post(
+      agent.id,
+      { mode: this.mode, x: this.goal.x, z: this.goal.z, targetId: prey?.id ?? -1 },
+      ctx.time,
+    );
 
     // 相手が高いところへ逃げたら、一段ずつ踏み台を経由して追い上げる。
     const climbing = prey !== null && prey.y > agent.y + 0.4;
@@ -282,7 +287,7 @@ export class SeekerBrain {
     const lockedBoxes = ctx.game.state.obstacles.filter(
       (o) => o.kind === 'box' && o.lockedBy === 'hider',
     );
-    const others = [...ctx.seekerGoals.entries()].filter(([id]) => id !== agent.id).map(([, g]) => g);
+    const others = ctx.coop.seeker.others(agent.id, ctx.time);
 
     let best: { x: number; z: number } | null = null;
     let bestScore = -Infinity;
@@ -293,7 +298,7 @@ export class SeekerBrain {
         if (nav.blocked[i]) continue;
         const x = nav.worldX(cx);
         const z = nav.worldX(cz);
-        const age = ctx.game.state.time - ctx.seekerExplore[i];
+        const age = ctx.game.state.time - ctx.coop.seeker.grid[i];
         const dist = Math.hypot(x - agent.x, z - agent.z);
         if (dist < 3) continue;
 
@@ -332,7 +337,7 @@ export class SeekerBrain {
         if (!nav.inBounds(cx, cz)) break;
         const i = nav.idx(cx, cz);
         if (nav.blocked[i]) break;
-        ctx.seekerExplore[i] = ctx.game.state.time;
+        ctx.coop.seeker.markGrid(i, ctx.game.state.time);
       }
     }
   }

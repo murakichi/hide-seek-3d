@@ -117,6 +117,12 @@ export function trace(config: MatchConfig, opts: TraceOptions): string {
         .map((a) => `${tag(a)}${fmt(a)}${a.y > 0.3 ? `↑${a.y.toFixed(1)}` : ''} ${ai.describe(a.id)}`)
         .join('  |  ');
       console.log(`  [t=${now} ${s.phase}] ${line}`);
+      // 味方同士の申し合わせ。集計値では「味方が譲り合って両方止まった」
+      // 「同じ相手に全員が群がった」のような事故が見えない。
+      if (s.phase !== 'prep') {
+        console.log(`      鬼   ${ai.describeCoop('seeker')}`);
+      }
+      console.log(`      逃   ${ai.describeCoop('hider')}`);
     }
   }
 

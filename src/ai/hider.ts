@@ -87,7 +87,7 @@ export class HiderBrain {
 
   /** このエージェントに割り当てられた拠点。 */
   private home(ctx: AiContext, agent: Agent): { x: number; z: number } | null {
-    return ctx.shelters.get(agent.id) ?? null;
+    return ctx.coop.hider.posOf(agent.id, 'shelter');
   }
 
   /** デバッグ表示用の内部状態。 */
