@@ -14,6 +14,7 @@ export class Hud {
   private hintEl: HTMLDivElement;
   private resultEl: HTMLDivElement;
   private speedEl: HTMLDivElement;
+  private toolsEl: HTMLDivElement;
   private speed = 1;
 
   constructor(
@@ -21,6 +22,8 @@ export class Hud {
     private onRestart: () => void,
     private onMenu: () => void,
     private onSpeed: (multiplier: number) => void,
+    /** 対戦ログをファイルに保存する。渡されなければボタンを出さない */
+    private onSaveLog?: () => void,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'hud';
@@ -31,6 +34,7 @@ export class Hud {
       </div>
       <div class="roster"></div>
       <div class="speed"></div>
+      <div class="tools"></div>
       <div class="hud-bottom">
         <div class="stamina"><i></i></div>
         <div class="hint"></div>
@@ -45,7 +49,20 @@ export class Hud {
     this.hintEl = this.el.querySelector('.hint')!;
     this.resultEl = this.el.querySelector('.result')!;
     this.speedEl = this.el.querySelector('.speed')!;
+    this.toolsEl = this.el.querySelector('.tools')!;
     this.buildSpeedControls();
+    this.buildTools();
+  }
+
+  /**
+   * 試合中でも押せるログ保存。決着まで待たせない。
+   * 「今の場面がおかしかった」と思った瞬間に押せることに意味がある
+   * （そこまでの出来事が全部入る）。
+   */
+  private buildTools(): void {
+    if (!this.onSaveLog) return;
+    this.toolsEl.innerHTML = '<button class="savelog" title="ここまでの対戦ログをファイルに保存">ログを保存</button>';
+    this.toolsEl.querySelector<HTMLButtonElement>('.savelog')!.onclick = () => this.onSaveLog!();
   }
 
   /** 観戦時の再生速度切り替え。AI 同士の試合を眺めるときは待ち時間が長い。 */
@@ -146,9 +163,14 @@ export class Hud {
         <div class="result-buttons">
           <button class="again">もう一度</button>
           <button class="tomenu">設定を変える</button>
+          ${this.onSaveLog ? '<button class="savelog">ログを保存</button>' : ''}
         </div>
       </div>`;
     this.resultEl.classList.add('on');
+    if (this.onSaveLog) {
+      // 保存しても結果画面は閉じない。何度でも押せる。
+      this.resultEl.querySelector<HTMLButtonElement>('.savelog')!.onclick = () => this.onSaveLog!();
+    }
     this.resultEl.querySelector<HTMLButtonElement>('.again')!.onclick = () => {
       this.resultEl.classList.remove('on');
       this.resultEl.innerHTML = '';

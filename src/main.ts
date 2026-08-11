@@ -7,7 +7,9 @@ import type { Action, MatchConfig } from './core/types';
 import { InputManager } from './input';
 import { Renderer } from './render/renderer';
 import { GameView } from './render/view';
+import { MatchRecorder } from './sim/recorder';
 import { Hud } from './ui/hud';
+import { downloadMatchLog } from './ui/logfile';
 import { Menu, type MenuResult } from './ui/menu';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -19,6 +21,7 @@ const input = new InputManager(canvas);
 let game: Game | null = null;
 let ai: AiDirector | null = null;
 let view: GameView | null = null;
+let recorder: MatchRecorder | null = null;
 let lastSetup: MenuResult | null = null;
 
 let speed = 1;
@@ -28,6 +31,9 @@ const hud = new Hud(
   () => toMenu(),
   (m) => {
     speed = m;
+  },
+  () => {
+    if (game && recorder) downloadMatchLog(game, recorder);
   },
 );
 hud.hide();
@@ -55,6 +61,15 @@ function start(setup: MenuResult): void {
   const config: MatchConfig = Menu.toConfig(setup, (Math.random() * 0xffffff) | 0);
   game = new Game(config);
   ai = new AiDirector(game);
+  // 記録はいつでも保存できるよう、最初から回しておく。
+  // スナップショットは 3 秒ごと（trace の既定と同じ）。
+  recorder = new MatchRecorder(game, {
+    interval: 3,
+    hooks: {
+      describe: (id) => ai!.describe(id),
+      shelterOf: (id) => ai!.shelterOf(id),
+    },
+  });
   if (view) view.build(game);
   else view = new GameView(renderer, game);
   hud.show();
@@ -85,6 +100,9 @@ function frame(now: number): void {
         actions.set(player.id, input.buildAction(renderer.camera, player.x, player.z));
       }
       game.step(actions);
+      // step の直後に観測する。差分から出来事を拾うので、飛ばすとその分が落ちる。
+      recorder?.observe();
+      if (game.state.phase === 'over') recorder?.finish();
     }
     view.sync(game, game.state.config.playerTeam);
     hud.update(game);
