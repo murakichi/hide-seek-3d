@@ -35,6 +35,12 @@ const SECONDS = Number(process.argv[3] ?? 40);
  * 鬼の時間を浪費させる罠になっていないか**は、動く相手で見ないと分からない。
  */
 const FREE = process.argv[4] === 'free';
+/**
+ * `wall` を渡すと、高い足場を箱ではなく**内壁**（高さ 2.6）にする。
+ * 内壁も小箱の上からは届く＝乗れる足場なので、逃げる側は壁の上を経由できる。
+ * 鬼が壁を足場として無視していると、同じ穴が壁の側に残る。
+ */
+const VIA_WALL = process.argv[5] === 'wall';
 
 function box(id: number, x: number, z: number, h: number): Obstacle {
   return {
@@ -62,9 +68,13 @@ const s = game.state;
 s.obstacles.length = 0;
 s.obstacles.push(box(1, 0, 0, BOX_HEIGHT_SMALL));
 const highX = 2 + GAP; // 低い台の縁(1m) + 隙間 + 高い台の半幅(1m)
-s.obstacles.push(box(2, highX, -2, BOX_HEIGHT_BIG));
-s.obstacles.push(box(3, highX, 0, BOX_HEIGHT_BIG));
-s.obstacles.push(box(4, highX, 2, BOX_HEIGHT_BIG));
+const HIGH_H = VIA_WALL ? 2.6 : BOX_HEIGHT_BIG; // 内壁は 2.6
+const HIGH_KIND = VIA_WALL ? ('wall' as const) : ('box' as const);
+for (const [i, z] of [-2, 0, 2].entries()) {
+  const o = box(2 + i, highX, z, HIGH_H);
+  o.kind = HIGH_KIND;
+  s.obstacles.push(o);
+}
 
 const hider = s.agents.find((a) => a.team === 'hider')!;
 const seeker = s.agents.find((a) => a.team === 'seeker')!;
@@ -72,7 +82,7 @@ const seeker = s.agents.find((a) => a.team === 'seeker')!;
 // 逃走者は高い台の上、鬼は少し離れた地面。追跡フェーズから始める。
 hider.x = highX;
 hider.z = 0;
-hider.y = BOX_HEIGHT_BIG;
+hider.y = HIGH_H;
 seeker.x = -8;
 seeker.z = 0;
 seeker.y = 0;
@@ -81,7 +91,7 @@ s.time = 0;
 
 const ai = new AiDirector(game);
 
-console.log(`高所の再現  隙間 ${GAP} m  （低い台 ${BOX_HEIGHT_SMALL} / 高い台 ${BOX_HEIGHT_BIG}）`);
+console.log(`高所の再現  隙間 ${GAP} m  （低い台 ${BOX_HEIGHT_SMALL} / 高い台 ${HIGH_H} ${HIGH_KIND}）`);
 console.log(`  地上からの登坂力 ${CLIMB_REACH.toFixed(2)} m → 高い台(${BOX_HEIGHT_BIG})には直接乗れない`);
 console.log(`  低い台の上からは ${(BOX_HEIGHT_SMALL + CLIMB_REACH).toFixed(2)} m まで届く → 乗れるはず`);
 console.log(`  捕獲の垂直判定 ${CATCH_VERTICAL} m → 地上の鬼は高い台の相手に触れない`);
@@ -97,7 +107,7 @@ const ticks = Math.ceil(SECONDS / DT);
 for (let t = 0; t < ticks; t++) {
   const actions = ai.tick();
   const act = actions.get(seeker.id);
-  const onLowNow = seeker.y > BOX_HEIGHT_SMALL - 0.2 && seeker.y < BOX_HEIGHT_BIG - 0.2;
+  const onLowNow = seeker.y > BOX_HEIGHT_SMALL - 0.2 && seeker.y < HIGH_H - 0.2;
   if (onLowNow && seeker.grounded) {
     groundedOnLow++;
     if (act?.jump) jumpTicks++;
@@ -114,21 +124,21 @@ for (let t = 0; t < ticks; t++) {
     // 逃走者は動かさない。鬼が「登れるかどうか」だけを見る。
     hider.x = highX;
     hider.z = 0;
-    hider.y = BOX_HEIGHT_BIG;
+    hider.y = HIGH_H;
     hider.vx = 0;
     hider.vz = 0;
     hider.vy = 0;
   }
 
   if (seeker.y > maxY) maxY = seeker.y;
-  if (seeker.y > BOX_HEIGHT_SMALL - 0.2 && seeker.y < BOX_HEIGHT_BIG - 0.2) onLow++;
-  if (seeker.y >= BOX_HEIGHT_BIG - 0.2) onHigh++;
+  if (seeker.y > BOX_HEIGHT_SMALL - 0.2 && seeker.y < HIGH_H - 0.2) onLow++;
+  if (seeker.y >= HIGH_H - 0.2) onHigh++;
   if (hider.caught) {
     caught = true;
     console.log(`  捕獲 t=${s.time.toFixed(1)}`);
     break;
   }
-  if (t % 60 === 0 && t < 900) {
+  if (t % 300 === 0) {
     console.log(
       `  t=${s.time.toFixed(1).padStart(5)}  鬼(${seeker.x.toFixed(1)},${seeker.z.toFixed(1)}) y=${seeker.y.toFixed(2)}  ${ai.describe(seeker.id)}`,
     );

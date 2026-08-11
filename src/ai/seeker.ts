@@ -281,7 +281,9 @@ export class SeekerBrain {
     if (Math.hypot(dir.mx, dir.mz) < 0.5) return false;
 
     for (const o of ctx.game.state.obstacles) {
-      if (o.kind === 'wall') continue;
+      // 壁も除外しない。内壁は高さ 2.6 m で、小箱(1.3)の上からは届く＝乗れる足場。
+      // 逃げる側が壁の上を経由して渡れる以上、鬼が壁を無視すると同じ穴が残る。
+      // 届かない壁（外周は 3 m）は下の高さ判定で自然に落ちる。
       const top = o.y + o.h;
       if (top > agent.y + CLIMB_REACH) continue; // 今の高さからは届かない
       if (top < agent.y - LEAP_DROP) continue; // 落差が大きい先は跳ばずに落ちればよい
@@ -356,7 +358,8 @@ export class SeekerBrain {
     let best: Obstacle | null = null;
     let bestScore = Infinity;
     for (const o of ctx.game.state.obstacles) {
-      if (o.kind === 'wall') continue;
+      // 壁も踏み台の候補にする。内壁は 2.6 m で、逃げる側が経由路に使える高さ。
+      // 届かないものは下の高さ判定で落ちる。
       const toPrey = Math.hypot(o.x - prey.x, o.z - prey.z);
       const toSelf = Math.hypot(o.x - agent.x, o.z - agent.z);
 
