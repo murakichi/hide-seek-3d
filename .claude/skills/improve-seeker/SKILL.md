@@ -35,6 +35,15 @@ git checkout master && git fetch origin && git merge --ff-only origin/master
 把握する。`gh issue list --label seeker` に open な件があれば、優先度の高いものから 1 つ選ぶ。
 無ければ手順 1 の測定で、鬼の勝率が一番低い構成を対象にする。
 
+**`in-progress` が付いている issue は飛ばす。** 別のループが着手している。
+拾うと決めたら、**作業を始める前に自分で付ける。**
+
+```bash
+gh issue edit 20 --add-label in-progress
+```
+
+PR を出したら、または手を引いたら外す。付けっぱなしにすると他のループが拾えなくなる。
+
 **未マージの PR の中身まで読む。** タイトルだけでは足りない。
 
 ```bash
