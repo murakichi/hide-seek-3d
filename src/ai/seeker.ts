@@ -8,7 +8,7 @@ import {
   SEEKER_SPEED,
   SMOKE_RADIUS,
   STAMINA_MAX,
-  VIEW_DIST,
+  viewDistFor,
   VIEW_FOV,
 } from '../core/config';
 import { canSee } from '../core/vision';
@@ -470,7 +470,8 @@ export class SeekerBrain {
       const a = agent.facing + (r / (rays - 1) - 0.5) * VIEW_FOV;
       const sx = Math.sin(a);
       const sz = Math.cos(a);
-      for (let t = 0.5; t < VIEW_DIST; t += 0.75) {
+      const range = viewDistFor(ctx.game.state.config.seekers);
+      for (let t = 0.5; t < range; t += 0.75) {
         const x = agent.x + sx * t;
         const z = agent.z + sz * t;
         const cx = nav.cx(x);
