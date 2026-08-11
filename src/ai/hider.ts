@@ -600,9 +600,22 @@ export class HiderBrain {
         if (gap < 7) score -= (7 - gap) * 3;
       }
 
-      // 全員の視線が切れる方向なら大きく加点。
-      if (seekers.length > 0 && seekers.every((sk) => isCovered(s.obstacles, sk, px, pz))) {
-        score += p.fleeCoverBonus;
+      // 視線を切れる相手の**割合**で加点する。
+      //
+      // 以前は「全員から見えなくなる」ときだけ加点していた。鬼が 1 人なら同じだが、
+      // 3 人いるとそれを同時に満たす向きはほとんど無いので、**この項は 3v3 で
+      // 事実上死んでいた**。実測でも見失いの回数は 1 人あたり 6.7 回(1v1) →
+      // 4.5 回(2v2) → 3.4 回(3v3) と減り、見失ってから再発見までの時間も
+      // 3.9 → 2.6 → 2.5 秒と縮んでいる（見られている割合自体は 31〜40% で
+      // 3 構成とも変わらないので、「常に見えている」のではなく「切れていない」）。
+      //
+      // 1 人でも視線を切れれば、その鬼の追跡は記憶頼りになって精度が落ちる。
+      // 全部切れないなら 0 点、という扱いをやめて部分点を出す。
+      // 鬼が 1 人のときは hidden/1 が 0 か 1 なので、**1v1 の挙動は変わらない**。
+      if (seekers.length > 0) {
+        let hidden = 0;
+        for (const sk of seekers) if (isCovered(s.obstacles, sk, px, pz)) hidden++;
+        score += p.fleeCoverBonus * (hidden / seekers.length);
       }
 
       // 乗り越えは登る間だけ足が止まるので、その代償を引く。
