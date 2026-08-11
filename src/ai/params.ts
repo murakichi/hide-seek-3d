@@ -25,6 +25,11 @@ export interface SeekerParams {
   lockedBoxLure: number;
   /** 目標再計算の間隔（秒） */
   repathInterval: number;
+  /**
+   * 目標へ近づけない状態がこの秒数続いたら、その目標を諦めて選び直す。
+   * 短すぎると目標が定まらず往復する。長いと壁際で固まったまま試合が終わる。
+   */
+  repickAfter: number;
   /** 見回し（首振り）の角速度 */
   scanSpeed: number;
   /** 進路を塞ぐ箱をどけると判断する距離 */
@@ -73,6 +78,7 @@ const BASE_PARAMS: AiParams = {
     patrolDistWeight: 0.55,
     lockedBoxLure: 8,
     repathInterval: 0.4,
+    repickAfter: 2,
     scanSpeed: 1.9,
     clearDist: 2.2,
   },
