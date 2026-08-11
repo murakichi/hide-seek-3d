@@ -306,6 +306,42 @@ kbd {
   border-color: #4c5769;
 }
 
+/* カメラ操作。ログ保存の下に、同じ右肩の列として並べる。 */
+.camera {
+  position: absolute;
+  top: 102px;
+  right: 18px;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: rgba(10, 14, 20, 0.6);
+  pointer-events: auto;
+}
+
+.camera button {
+  min-width: 40px;
+  padding: 5px 0;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: #94a1b8;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.camera button:hover {
+  color: #e9edf5;
+}
+
+.camera button.on {
+  background: var(--hider);
+  color: #04121f;
+  font-weight: 700;
+}
+
 .hud-bottom {
   position: absolute;
   bottom: 22px;
