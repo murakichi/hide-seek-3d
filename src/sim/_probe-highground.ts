@@ -27,6 +27,14 @@ import type { MatchConfig, Obstacle } from '../core/types';
 
 const GAP = Number(process.argv[2] ?? 2.5);
 const SECONDS = Number(process.argv[3] ?? 40);
+/**
+ * `free` を渡すと逃走者を固定せず、AI に動かせる。
+ *
+ * 固定したままだと「鬼が登れるか」しか見えない。実際には、鬼が登ってきたら
+ * 逃走者は飛び降りて振り切れる可能性がある。**登れるようになったこと自体が
+ * 鬼の時間を浪費させる罠になっていないか**は、動く相手で見ないと分からない。
+ */
+const FREE = process.argv[4] === 'free';
 
 function box(id: number, x: number, z: number, h: number): Obstacle {
   return {
@@ -102,13 +110,15 @@ for (let t = 0; t < ticks; t++) {
     }
   }
   game.step(actions);
-  // 逃走者は動かさない。鬼が「登れるかどうか」だけを見る。
-  hider.x = highX;
-  hider.z = 0;
-  hider.y = BOX_HEIGHT_BIG;
-  hider.vx = 0;
-  hider.vz = 0;
-  hider.vy = 0;
+  if (!FREE) {
+    // 逃走者は動かさない。鬼が「登れるかどうか」だけを見る。
+    hider.x = highX;
+    hider.z = 0;
+    hider.y = BOX_HEIGHT_BIG;
+    hider.vx = 0;
+    hider.vz = 0;
+    hider.vy = 0;
+  }
 
   if (seeker.y > maxY) maxY = seeker.y;
   if (seeker.y > BOX_HEIGHT_SMALL - 0.2 && seeker.y < BOX_HEIGHT_BIG - 0.2) onLow++;
