@@ -11,6 +11,12 @@ export interface SeekerParams {
    * 0 だと相手の現在位置をそのまま追う（＝後ろについて回るだけになる）。
    */
   chaseLeadTime: number;
+  /**
+   * 1 人の逃走者へ向かう鬼の上限人数。
+   * 超えている相手は避けて別の相手を追う。見えている相手が全員埋まっていれば、
+   * 上限を無視して一番近い相手を追う（見えているのに追わないのは損）。
+   */
+  chaseMaxSeekers: number;
   /** 直近目撃をどれだけ信用し続けるか（秒） */
   memoryTrust: number;
   /**
@@ -30,7 +36,6 @@ export interface SeekerParams {
    * 短すぎると目標が定まらず往復する。長いと壁際で固まったまま試合が終わる。
    */
   repickAfter: number;
-  /**
   /** 見回し（首振り）の角速度 */
   scanSpeed: number;
   /** 進路を塞ぐ箱をどけると判断する距離 */
@@ -74,6 +79,7 @@ const BASE_PARAMS: AiParams = {
   seeker: {
     chaseDashDist: 14,
     chaseLeadTime: 0.6,
+    chaseMaxSeekers: 1,
     memoryTrust: 6,
     leadMaxSeekers: 1,
     patrolDistWeight: 0.55,
