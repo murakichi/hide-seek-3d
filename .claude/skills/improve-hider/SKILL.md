@@ -49,15 +49,31 @@ description: HIDE & SEEK 3D の逃げる側（hider）の行動を 1 サイク�
 
 ## 手順
 
-### 0. 最新を取り込み、前回までを読む
+### 0. 最新を取り込み、「これから何が変わるか」まで把握する
 
 ```bash
 git checkout master && git fetch origin && git merge --ff-only origin/master
+git log --oneline -10                  # master に何が入ったか
+gh pr list --state open                # ★ これから何が入るか
+gh issue list --state open             # 担当外も含めて全部見る
 ```
 
 `docs/journal/` の直近 2〜3 件を読む。前回の「次にやること」と、**試して駄目だった案**を
-把握する（同じ案を再発明しない）。`gh issue list --label hider` に open な件があれば、
-優先度の高いものから 1 つ選ぶ。無ければ手順 1 の測定で一番低い構成を対象にする。
+把握する（同じ案を再発明しない）。`gh issue list --label hider` の open から
+優先度の高いものを 1 つ選ぶ。無ければ手順 1 の測定で一番低い構成を対象にする。
+
+**open な PR は必ず中身まで読む。**`gh pr view <n>` で、これから master に入る変更が
+
+- 自分が触る場所（`hider.ts` の同じ関数、`params.ts` の hider 側）に当たるか
+- ルール（`src/core/**`）や計測の基準値を動かすか
+- 自分が今から測ろうとしている前提を壊すか
+
+を確かめる。当たるなら、**その PR を取り込んだ状態を土台にして測る**（`git merge origin/<branch>`）。
+これを怠ると、サイクルの終わりに PR がマージされていて基準値が全部古くなり、測り直しになる。
+実際に 2 サイクル連続でこれを踏んだ（2026-08-11 の日記）。
+
+同じ理由で、**手順 4 の再測定の直前と、手順 6 の PR 作成の直前に `git fetch` して
+master が動いていないか確認する。**動いていたら取り込んでから測り直す。
 
 `EnterWorktree` でこの作業用の worktree を切る（`fix-hider-*` など）。以降の編集はその中で行う。
 
