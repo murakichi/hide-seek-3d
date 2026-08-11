@@ -1,10 +1,14 @@
 // 一時的な計測スクリプト（改善サイクル用・使い捨て）。
-// 3v3 の勝率 1% が行動側で解けるのかを決めるために、「見られている時間」を測る。
+// 補給パックのブーストが使えているかを測る。
 //
-//   - 逃走者が誰かの視界に入っていたティックの割合
-//   - 視界から消えてから再発見されるまでの時間（＝振り切れているか）
-//   - 見失いの回数（1 人あたり・追跡 1 分あたり）
-//   - 生存時間（追跡開始から捕獲まで）
+// ブースト中のダッシュ消費は DASH_COST * BOOST_DASH_COST = 34 * 0.45 = 15.3/秒。
+// 回復は 19/秒なので、**ブースト中はダッシュし放題**（6 秒間）。
+// hider.ts は BOOST を一度も参照しておらず、パックを拾うのも
+// 「スタミナが 75% 未満」かつ「追われていない」ときだけ。
+//
+//   - 逃げる側／鬼が 1 試合に取ったパックの数
+//   - 追跡中にブーストが効いていたティックの割合
+//   - 逃走モード中にブーストが効いていた割合（本当に欲しい場面で効いているか）
 //
 // 使い方: npx tsx src/sim/_probe.ts <hiders> <seekers> [seed0]
 
@@ -12,24 +16,39 @@ import { AiDirector } from '../ai/director';
 import { DEFAULT_PARAMS } from '../ai/params';
 import { DT, HUNT_TIME, PREP_TIME } from '../core/config';
 import { Game } from '../core/game';
-import type { MatchConfig } from '../core/types';
+import type { Agent, GameState, MatchConfig } from '../core/types';
 import { canSee } from '../core/vision';
 
 const MAX_TICKS = Math.ceil((PREP_TIME + HUNT_TIME + 2) / DT);
 const GAMES = 30;
-const HIDERS = Number(process.argv[2] ?? 3);
-const SEEKERS = Number(process.argv[3] ?? 3);
+const HIDERS = Number(process.argv[2] ?? 2);
+const SEEKERS = Number(process.argv[3] ?? 2);
 const SEED0 = Number(process.argv[4] ?? 1234);
+const TRIGGER = DEFAULT_PARAMS.hider.fleeTriggerDist;
 
+function fleeing(s: GameState, agent: Agent): boolean {
+  let best = Infinity;
+  for (const a of s.agents) {
+    if (a.team !== 'seeker' || a.caught) continue;
+    let pos: { x: number; z: number } | null = null;
+    if (canSee(s, agent, a)) pos = { x: a.x, z: a.z };
+    else {
+      const rec = s.memory.hider.get(a.id);
+      if (rec && s.time - rec.t < 4) pos = { x: rec.x, z: rec.z };
+    }
+    if (pos) best = Math.min(best, Math.hypot(pos.x - agent.x, pos.z - agent.z));
+  }
+  return best < TRIGGER;
+}
+
+let hiderPicks = 0;
+let seekerPicks = 0;
 let hiderTicks = 0;
-let seenTicks = 0;
-let losses = 0; // 見失い（見えていた→見えなくなった）
-const regainGaps: number[] = []; // 見失ってから再発見までの秒
-let stillLost = 0; // 見失ったまま試合が終わった
-let huntSeconds = 0;
-const survival: number[] = [];
-let survivors = 0;
-let totalHiders = 0;
+let hiderBoostTicks = 0;
+let fleeTicks = 0;
+let fleeBoostTicks = 0;
+let packsActive = 0;
+let packSamples = 0;
 
 for (let g = 0; g < GAMES; g++) {
   const config: MatchConfig = {
@@ -40,70 +59,42 @@ for (let g = 0; g < GAMES; g++) {
   };
   const game = new Game(config);
   const ai = new AiDirector(game, DEFAULT_PARAMS);
-  const wasSeen = new Map<number, boolean>();
-  const lostAt = new Map<number, number>();
-  const prevCaught = new Set<number>();
-  let huntStart = -1;
+  const prevBoost = new Map<number, number>();
 
   for (let t = 0; t < MAX_TICKS; t++) {
     const actions = ai.tick();
     const s = game.state;
 
     if (s.phase === 'hunt') {
-      if (huntStart < 0) huntStart = s.time;
-      huntSeconds += DT;
-      const seekers = s.agents.filter((a) => a.team === 'seeker' && !a.caught);
+      packsActive += s.pickups.filter((p) => p.active).length;
+      packSamples++;
       for (const a of s.agents) {
-        if (a.team !== 'hider' || a.caught) continue;
-        hiderTicks++;
-        const seen = seekers.some((k) => canSee(s, k, a));
-        if (seen) seenTicks++;
-        const before = wasSeen.get(a.id) ?? false;
-        if (before && !seen) {
-          losses++;
-          lostAt.set(a.id, s.time);
-        } else if (!before && seen) {
-          const t0 = lostAt.get(a.id);
-          if (t0 !== undefined) {
-            regainGaps.push(s.time - t0);
-            lostAt.delete(a.id);
-          }
+        if (a.caught) continue;
+        const pb = prevBoost.get(a.id) ?? -99;
+        if (a.boostUntil > pb) {
+          if (a.team === 'hider') hiderPicks++;
+          else seekerPicks++;
         }
-        wasSeen.set(a.id, seen);
+        prevBoost.set(a.id, a.boostUntil);
+        if (a.team !== 'hider') continue;
+        hiderTicks++;
+        const boosted = s.time < a.boostUntil;
+        if (boosted) hiderBoostTicks++;
+        if (fleeing(s, a)) {
+          fleeTicks++;
+          if (boosted) fleeBoostTicks++;
+        }
       }
     }
 
     game.step(actions);
-    for (const a of game.state.agents) {
-      if (a.team !== 'hider' || !a.caught || prevCaught.has(a.id)) continue;
-      prevCaught.add(a.id);
-      if (huntStart >= 0) survival.push(game.state.time - huntStart);
-      if (lostAt.has(a.id)) {
-        // 見失われたまま捕まった（＝記憶で追われた）
-      }
-    }
     if (game.state.phase === 'over') break;
-  }
-
-  stillLost += lostAt.size;
-  for (const a of game.state.agents) {
-    if (a.team !== 'hider') continue;
-    totalHiders++;
-    if (!a.caught) survivors++;
   }
 }
 
 const pct = (n: number, d: number): string => `${((n / Math.max(1, d)) * 100).toFixed(1)}%`;
-const avg = (xs: number[]): string =>
-  xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : '—';
 console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合 (seed0=${SEED0})`);
-console.log(`  見られていたティック: ${pct(seenTicks, hiderTicks)}`);
-console.log(
-  `  見失い: ${losses} 回  （逃走者 1 人あたり ${(losses / Math.max(1, totalHiders)).toFixed(1)} 回 / ` +
-    `追跡 1 分あたり ${(losses / Math.max(1, huntSeconds / 60)).toFixed(1)} 回）`,
-);
-console.log(
-  `  見失ってから再発見まで: 平均 ${avg(regainGaps)} 秒  （そのまま逃げ切った ${stillLost} 件）`,
-);
-console.log(`  捕まるまでの生存時間: 平均 ${avg(survival)} 秒`);
-console.log(`  生存 ${survivors} / ${totalHiders} 人 (${pct(survivors, totalHiders)})`);
+console.log(`  追跡中に取ったパック: 逃 ${(hiderPicks / GAMES).toFixed(2)} 個/試合  鬼 ${(seekerPicks / GAMES).toFixed(2)} 個/試合`);
+console.log(`  盤上に残っていたパック: 平均 ${(packsActive / Math.max(1, packSamples)).toFixed(1)} 個`);
+console.log(`  逃げる側がブースト中だったティック: ${pct(hiderBoostTicks, hiderTicks)}`);
+console.log(`  そのうち逃走モード中: ${pct(fleeBoostTicks, fleeTicks)}（逃走ティックのうち）`);
