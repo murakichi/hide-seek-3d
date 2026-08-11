@@ -4,7 +4,6 @@
 import {
   AGENT_RADIUS,
   ARENA_HALF,
-  CATCH_VERTICAL,
   CLIMB_REACH,
   DT,
   EYE_HEIGHT,
@@ -74,9 +73,6 @@ export class HiderBrain {
   /** 運搬中の箱が前ティックにいた位置。箱自体が進んでいるかを見る */
   private lastBoxX = 0;
   private lastBoxZ = 0;
-  /** 高所の取り付き点の探索間隔とその結果（毎ティック全障害物を総当たりしない） */
-  private perchTick = new Ticker(0.4);
-  private perchCache: { x: number; z: number } | null | undefined = undefined;
   /** 箱が進まないまま経過した秒数 */
   private boxStall = 0;
 
@@ -360,12 +356,6 @@ export class HiderBrain {
       ? Math.min(...threats.map((t) => Math.hypot(t.x - agent.x, t.z - agent.z)))
       : Infinity;
 
-    // 足場の上に立っているなら降りない。捕獲は水平距離と |y の差| < CATCH_VERTICAL の
-    // 両方が成立したときだけなので（`src/core/game.ts`）、1.6 より高い面に立っている
-    // 間は地上の鬼から触られない。実測でも 88 件の捕獲のうち、高さ 1.6 超で捕まったのは
-    // 1 件だけだった。逃走の方向決めは高さを見ないので、放っておくと自分から降りる。
-    if (this.holdHighGround(ctx, agent, act, nearest)) return act;
-
     if (nearest < p.fleeTriggerDist) {
       // 逃走中は目標地点を決め打ちしない。地点を目指すと壁際で詰まったり、
       // 目標更新の間に距離を詰められる。毎ティック方向を選び直す方が粘れる。
@@ -421,14 +411,8 @@ export class HiderBrain {
       }
     }
 
-    // 待機先は、あるなら「登れる高所」。無ければ拠点。
-    //
-    // これを逃走の採点（`fleeDirection`）に混ぜる形では 3 回失敗している。
-    // 既存の項（進める距離・鬼から離れる・遮蔽・向きの保持）は噛み合っていて、
-    // そこへ別の目的関数を足すと必ずどれかを削ることになるため。
-    // 追われていない間の待機先を差し替えるなら、逃走ロジックとは競合しない。
-    const perch = this.perchAccess(ctx, agent, recent);
-    const home = perch ?? this.home(ctx, agent) ?? { x: agent.x, z: agent.z };
+    // 脅威が無い間は拠点付近で待機。たまに周囲を見る。
+    const home = this.home(ctx, agent) ?? { x: agent.x, z: agent.z };
     const d = Math.hypot(home.x - agent.x, home.z - agent.z);
     // 待機中こそ周囲の確認が命綱なので、速めに首を振る。
     this.wanderAngle += 2.4 / 60;
@@ -451,17 +435,6 @@ export class HiderBrain {
       );
       act.aimX = closest.x - agent.x;
       act.aimZ = closest.z - agent.z;
-      return act;
-    }
-
-    // 高所を目指しているなら、近くで止まらずに登り切る。
-    // 取り付き点の真横で「着いた」と判断すると、足元の箱に乗らないまま待機してしまう。
-    if (perch) {
-      this.moveTo(ctx, agent, act, perch.x, perch.z, false);
-      // 取り付いたら跳ぶ。減速を待っていると箱の高さに届かない。
-      if (d < 3.5) act.jump = shouldJump(ctx, agent, act.moveX, act.moveZ, true) || act.jump;
-      act.aimX = Math.sin(this.wanderAngle);
-      act.aimZ = Math.cos(this.wanderAngle);
       return act;
     }
 
@@ -524,133 +497,6 @@ export class HiderBrain {
       }
     }
     return false;
-  }
-
-  /**
-   * 足場の上に立っていて、まだ誰も同じ高さまで登ってきていないなら、その場で粘る。
-   * 粘ると判断したら act を埋めて true を返す。
-   *
-   * 降りるのは「鬼が捕獲の届く高さまで来たとき」だけ。見られていても降りない。
-   * 見られていても触られなければ捕まらないし、降りた先の地上戦の方が分が悪い。
-   */
-  private holdHighGround(ctx: AiContext, agent: Agent, act: Action, nearest: number): boolean {
-    if (!agent.grounded || agent.y <= CATCH_VERTICAL) return false;
-    const s = ctx.game.state;
-    const p = ctx.params.hider;
-
-    for (const sk of s.agents) {
-      if (sk.team !== 'seeker' || sk.caught) continue;
-      // 同じ高さ帯まで登ってこられたら足場の利は消えている。通常の逃走に戻る。
-      if (
-        Math.abs(sk.y - agent.y) < CATCH_VERTICAL &&
-        Math.hypot(sk.x - agent.x, sk.z - agent.z) < p.fleeTriggerDist
-      ) {
-        return false;
-      }
-    }
-
-    // 足場の中央へ寄せておく。端に立っていると押されたり跳ねたりで落ちる。
-    const top = this.supportUnder(ctx, agent);
-    if (top) {
-      const dx = top.x - agent.x;
-      const dz = top.z - agent.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 0.35) {
-        act.moveX = dx / dist;
-        act.moveZ = dz / dist;
-      }
-    }
-
-    // 動かない間こそ周囲の確認が要る。登ってくる鬼に気づけないと降り遅れる。
-    this.wanderAngle += 2.4 / 60;
-    act.aimX = Math.sin(this.wanderAngle);
-    act.aimZ = Math.cos(this.wanderAngle);
-    this.path = [];
-    this.fleeAngle = null;
-
-    // 近くまで来ていて見られているなら煙で隠す。登り口を探しにくくする。
-    if (agent.smokeCharges > 0 && nearest < 8) {
-      const watched = s.agents.some(
-        (sk) => sk.team === 'seeker' && !sk.caught && canSee(s, sk, agent),
-      );
-      if (watched) act.smoke = true;
-    }
-    return true;
-  }
-
-  /** 今立っている足場（上面が足元と一致する障害物）。地面なら null。 */
-  private supportUnder(ctx: AiContext, agent: Agent): Obstacle | null {
-    let best: Obstacle | null = null;
-    for (const o of ctx.game.state.obstacles) {
-      if (o.kind === 'pad') continue;
-      if (Math.abs(o.y + o.h - agent.y) > 0.25) continue;
-      if (Math.abs(agent.x - o.x) > o.hw + AGENT_RADIUS) continue;
-      if (Math.abs(agent.z - o.z) > o.hd + AGENT_RADIUS) continue;
-      best = o;
-    }
-    return best;
-  }
-
-  /**
-   * 待機先にする「登れる高所」への取り付き点。無ければ null。
-   *
-   * 直接跳び移れる面ならその面、届かないなら踏み台になる箱の位置を返す。
-   * 鬼も同じ登坂力を持つので永久に安全にはならないが、鬼は踏み台を探して
-   * 回り込む必要があるぶん時間を失うし、登ってこられたら飛び降りて逃げ直せる。
-   */
-  private perchAccess(
-    ctx: AiContext,
-    agent: Agent,
-    threats: Array<{ x: number; z: number }>,
-  ): { x: number; z: number } | null {
-    if (!this.perchTick.ready() && this.perchCache !== undefined) return this.perchCache;
-    const s = ctx.game.state;
-    let best: { x: number; z: number } | null = null;
-    let bestScore = -Infinity;
-
-    for (const o of s.obstacles) {
-      if (o.kind === 'wall' || o.kind === 'pad' || o.kind === 'ramp') continue;
-      const top = o.y + o.h;
-      if (top <= CATCH_VERTICAL) continue; // 立っても捕獲を防げない
-
-      let access: { x: number; z: number } | null = null;
-      if (top <= agent.y + CLIMB_REACH) {
-        access = { x: o.x, z: o.z };
-      } else {
-        // 踏み台を探す。足場のすぐ横にあって、そこから上面へ届くもの。
-        for (const q of s.obstacles) {
-          if (q.id === o.id || q.kind === 'wall') continue;
-          const qtop = q.y + q.h;
-          if (q.kind !== 'pad' && q.kind !== 'ramp' && qtop > agent.y + CLIMB_REACH) continue;
-          const from = q.kind === 'pad' ? 3.0 : qtop;
-          if (from + CLIMB_REACH < top) continue;
-          const gap =
-            Math.hypot(q.x - o.x, q.z - o.z) - Math.max(o.hw, o.hd) - Math.max(q.hw, q.hd);
-          if (gap > 2.5) continue;
-          access = { x: q.x, z: q.z };
-          break;
-        }
-      }
-      if (!access) continue;
-
-      const toSelf = Math.hypot(access.x - agent.x, access.z - agent.z);
-      if (toSelf > 20) continue;
-      let score = -toSelf;
-      // 鬼が居る方の足場へは向かわない。道中で捕まっては意味がない。
-      for (const t of threats) score += Math.min(Math.hypot(t.x - access.x, t.z - access.z), 20) * 0.6;
-      // 味方と同じ足場に集まらない。1 人でも残れば勝ちというルールの利点を捨てないため。
-      for (const mate of s.agents) {
-        if (mate.team !== 'hider' || mate.id === agent.id || mate.caught) continue;
-        const gap = Math.hypot(mate.x - access.x, mate.z - access.z);
-        if (gap < 8) score -= (8 - gap) * 2.5;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = access;
-      }
-    }
-    this.perchCache = best;
-    return best;
   }
 
   /** 見えている鬼＋チームの記憶にある鬼の位置。 */
