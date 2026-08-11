@@ -4,7 +4,8 @@ import { AGENT_RADIUS, ARENA_HALF, DT, EYE_HEIGHT } from '../core/config';
 import type { Game } from '../core/game';
 import { hasLineOfSight } from '../core/physics';
 import { Rng } from '../core/rng';
-import type { Action, Agent, Obstacle } from '../core/types';
+import type { Action, Agent, Obstacle, Team } from '../core/types';
+import type { TeamCoop } from './coop';
 import { NavGrid } from './nav';
 import type { AiParams } from './params';
 
@@ -14,14 +15,10 @@ export interface AiContext {
   params: AiParams;
   rng: Rng;
   /**
-   * 逃げる側の拠点。エージェントごとに別の場所を割り当てる。
-   * 全員で 1 箇所に固まると、そこを見つけられた時点で全滅するため。
+   * チームごとの申し合わせ。共有知識・意図の共有・予約はすべてここに集める。
+   * 味方同士の調整を足すときは `src/ai/coop.ts` を読むこと。
    */
-  shelters: Map<number, { x: number; z: number }>;
-  /** 鬼チームが共有する「このセルを最後に見た時刻」マップ */
-  seekerExplore: Float32Array;
-  /** 鬼が今どこへ向かっているか。担当がバラけるように参照する */
-  seekerGoals: Map<number, { x: number; z: number }>;
+  coop: Record<Team, TeamCoop>;
   time: number;
 }
 
