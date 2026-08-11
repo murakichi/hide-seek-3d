@@ -63,14 +63,29 @@ export const STAMINA_REGEN = 19;
 export const DASH_MIN_STAMINA = 12;
 
 export const PREP_TIME = 32;
-export const HUNT_TIME = 70;
+/**
+ * 追跡フェーズの**最長**（鬼が 3 人以上のとき）。
+ * `huntTimeFor` はここから引く方向にしか動かないので、
+ * ヘッドレス実行の打ち切り上限（`PREP_TIME + HUNT_TIME`）はこの値で足りる。
+ * 増やす方向の式に変えるときは `src/sim/*` の `MAX_TICKS` も一緒に直すこと。
+ */
+export const HUNT_TIME = 68;
 
 /**
- * 鬼が増えるほど盤面を虱潰しにする速度が上がり、逃げ切りが一気に難しくなる。
- * 人数が増えたぶんだけ逃げ切りに必要な時間を縮めて釣り合いを取る。
+ * 人数が増えるほど逃げ切りに必要な時間を**伸ばす**。
+ *
+ * 以前は逆（人数が増えるほど縮める）だった。「鬼が増えれば盤面を虱潰しにする速度が
+ * 上がるので、そのぶん短くして釣り合いを取る」という理屈だったが、測ると逆だった。
+ * 探索が速くなる効果より「**1 人でも残れば逃げ側の勝ち**」の増幅の方が強く、
+ * 逃げ側勝率は人数に対して単調に上がる。短い側（3v3 は 54 秒だった）に
+ * 最も強い側が居る形になっていて、構成間の開きを広げていた。
+ *
+ * 1v1 56 / 2v2 62 / 3v3 以上 68 秒。`HUNT_TIME` が最長になる向きに揃えてある
+ * （ヘッドレス実行の打ち切り上限がこれを前提にしている）。
+ * 実測は `docs/balance-log.md` 2026-08-11 の節。
  */
 export function huntTimeFor(seekers: number): number {
-  return Math.max(45, HUNT_TIME - (seekers - 1) * 8);
+  return HUNT_TIME - Math.max(0, 3 - seekers) * 6;
 }
 
 /** 捕獲成立する水平距離 */
