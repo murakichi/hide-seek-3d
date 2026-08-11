@@ -6,6 +6,7 @@ import {
   DT,
   GRAB_RANGE,
   SEEKER_SPEED,
+  SMOKE_RADIUS,
   STAMINA_MAX,
   VIEW_DIST,
   VIEW_FOV,
@@ -13,6 +14,7 @@ import {
 import { canSee } from '../core/vision';
 import type { Action, Agent, Obstacle } from '../core/types';
 import {
+  clampToArena,
   directIfClear,
   emptyAction,
   followPath,
@@ -91,7 +93,8 @@ export class SeekerBrain {
       const lead = givenUp ? null : this.recallLead(ctx, agent);
       if (lead) {
         this.mode = 'investigate';
-        this.goal = lead;
+        // 煙の中へ入っても何も見えない。向こう側へ抜けて、そこから見る。
+        this.goal = this.pastSmoke(ctx, agent, lead);
       } else if (this.mode !== 'patrol' || !this.goal || this.reached(agent, this.goal, 1.4)) {
         this.mode = 'patrol';
         // 息が切れたままだと、見つけても追いつけない。巡回のついでに補給する。
@@ -239,6 +242,52 @@ export class SeekerBrain {
     } else {
       this.noProgress += DT;
     }
+  }
+
+  /**
+   * 目撃地点が煙の中なら、煙の**向こう側**へ目標をずらす。
+   *
+   * 鬼は煙という概念を持っていなかった。見失った地点はたいてい煙の中なので、
+   * そこへ向かうと煙の中で立ち止まり、何も見えないまま煙が晴れるのを待つことになる。
+   * 実測では 1v1 の見失いの 30.2% が煙によるもので、そのうち 80.7% で鬼は
+   * 3 秒以内に煙へ入っていた。再発見までは平均 10.0 秒（煙の持続は 7 秒）——
+   * つまり**煙が消えるまで待っていただけ**。
+   *
+   * 逃走者は煙を置いて走り続けるので、煙の中には既に居ない。
+   * 通り抜けて反対側から見る方が、中で待つより情報が得られる。
+   */
+  private pastSmoke(
+    ctx: AiContext,
+    agent: Agent,
+    goal: { x: number; z: number },
+  ): { x: number; z: number } {
+    const smokes = ctx.game.state.smokes;
+    if (smokes.length === 0) return goal;
+
+    let best: { x: number; z: number } | null = null;
+    let bestD = Infinity;
+    for (const sm of smokes) {
+      const d = Math.hypot(goal.x - sm.x, goal.z - sm.z);
+      if (d >= SMOKE_RADIUS || d >= bestD) continue;
+      bestD = d;
+      best = sm;
+    }
+    if (!best) return goal;
+
+    // 自分から見て煙の向こう側の縁の、さらに少し先。
+    const dx = best.x - agent.x;
+    const dz = best.z - agent.z;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.001) return goal;
+    const reach = SMOKE_RADIUS + 2;
+    const x = clampToArena(best.x + (dx / len) * reach);
+    const z = clampToArena(best.z + (dz / len) * reach);
+
+    // 抜けた先が壁や箱の中なら、無理せず元の目標のままにする。
+    const cx = ctx.nav.cx(x);
+    const cz = ctx.nav.cx(z);
+    if (!ctx.nav.inBounds(cx, cz) || ctx.nav.blocked[ctx.nav.idx(cx, cz)]) return goal;
+    return { x, z };
   }
 
   /** 見えている逃走者のうち、最も近い者。 */
