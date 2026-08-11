@@ -25,6 +25,14 @@ export function canSee(state: GameState, observer: Agent, target: Agent): boolea
     if (Math.abs(angleDiff(ang, observer.facing)) > VIEW_FOV / 2) return false;
   }
 
+  // 逃げる側の「気配」は遮蔽も煙も貫く。**視覚ではないので当然という扱い。**
+  // 元は視覚と同じ条件（遮蔽で切られる）にしていたが、それだと
+  // 「箱の陰に隠れる」と「鬼の接近に気づく」が両立しない。隠れるほど無防備になる。
+  // 遮蔽を増やす変更が 2 回とも逆効果だった（`BOX_HEIGHT_SMALL` の節）のは
+  // これが原因ではないかという仮説から。距離が 9 m と短いので、
+  // 「気づけるが振り切れるとは限らない」の範囲に収まる。
+  if (observer.team === 'hider' && dist <= HIDER_SENSE_DIST) return true;
+
   // 胴体中央を狙って 1 本、頭を狙って 1 本。片方でも通れば見えている扱い。
   const oy = observer.y + EYE_HEIGHT;
   const clear =
