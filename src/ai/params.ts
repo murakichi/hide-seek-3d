@@ -37,12 +37,6 @@ export interface SeekerParams {
 }
 
 export interface HiderParams {
-  /** ジャンプ台を起点にするときの、台までの許容距離 */
-  padApproach: number;
-  /** 隙間を挟んで跳び移れる水平距離（0 で無効） */
-  gapHopReach: number;
-  /** 高台の「孤立」判定：踏み台がこの距離より近くに無ければ鬼は登れない */
-  perchIsolation: number;
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -89,9 +83,6 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
-    padApproach: 12,
-    gapHopReach: 4.5,
-    perchIsolation: 3,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,
