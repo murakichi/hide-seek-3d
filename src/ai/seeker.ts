@@ -3,6 +3,7 @@
 
 import {
   CLIMB_REACH,
+  DT,
   GRAB_RANGE,
   SEEKER_SPEED,
   STAMINA_MAX,
@@ -23,6 +24,11 @@ import {
 
 type Mode = 'chase' | 'investigate' | 'patrol';
 
+/** 諦めた目標を避け続ける秒数。長すぎると盤面の一部を見なくなる */
+const AVOID_TIME = 12;
+/** 諦めた目標のまわり、この距離までを避ける */
+const AVOID_RADIUS = 5;
+
 export class SeekerBrain {
   private path: Array<{ x: number; z: number }> = [];
   private goal: { x: number; z: number } | null = null;
@@ -31,6 +37,14 @@ export class SeekerBrain {
   private scanAngle = 0;
   private stuckTimer = 0;
   private clearTarget = -1;
+  /** 今の目標に対してこれまでで一番近づけた距離。詰まり判定に使う */
+  private bestDist = Infinity;
+  /** その距離を更新できていない時間（秒） */
+  private noProgress = 0;
+  private prevGoalX = NaN;
+  private prevGoalZ = NaN;
+  /** 諦めた目標。しばらく選び直さないための一時的な除外リスト */
+  private avoid: Array<{ x: number; z: number; t: number }> = [];
 
   constructor(seedOffset: number) {
     this.repath = new Ticker(0.4, seedOffset * 0.07);
@@ -57,13 +71,24 @@ export class SeekerBrain {
 
     this.markExplored(ctx, agent);
 
+    // 目標へ近づけない状態が続いていたら、その目標は諦める。
+    // 到達判定だけで選び直していると、壁や到達不能な目標に張り付いたまま
+    // 試合が終わる（トレースで鬼 3 人が 36〜54 秒間まったく動かない試合を確認した）。
+    const givenUp = this.mode !== 'chase' && this.goal !== null && this.noProgress > p.repickAfter;
+    if (givenUp) {
+      this.avoid.push({ x: this.goal!.x, z: this.goal!.z, t: ctx.game.state.time });
+      if (this.avoid.length > 6) this.avoid.shift();
+      this.goal = null;
+      this.path = [];
+    }
+
     const prey = this.pickVisiblePrey(ctx, agent);
     if (prey) {
       this.mode = 'chase';
       this.goal = this.interceptPoint(ctx, agent, prey, p.chaseLeadTime);
       this.path = [];
     } else {
-      const lead = this.recallLead(ctx, agent);
+      const lead = givenUp ? null : this.recallLead(ctx, agent);
       if (lead) {
         this.mode = 'investigate';
         this.goal = lead;
@@ -77,6 +102,8 @@ export class SeekerBrain {
         this.repath.force();
       }
     }
+
+    this.trackProgress(agent);
 
     if (!this.goal) return act;
     // 味方に「自分はここへ何をしに行く」を掲示する。強制力は無く、参考にされるだけ。
@@ -182,6 +209,38 @@ export class SeekerBrain {
     return { x, z };
   }
 
+  /**
+   * 目標へ近づけているかを見張る。
+   *
+   * 経路が取れないと `followPath` も `directIfClear` も向きを返さず、移動入力が
+   * ゼロのまま `patrol` を維持してしまう。`pickPatrolGoal` は「到達したら選び直す」
+   * ようになっているので、**到達できない目標を掴むと二度と選び直さない。**
+   * 実際、壁際で 54 秒間まったく動かない鬼をトレースで確認した。
+   * 壁は `findBlocker` の対象外（箱だけを見ている）なので、そちらの復帰処理も働かない。
+   */
+  private trackProgress(agent: Agent): void {
+    const goal = this.goal;
+    if (!goal) {
+      this.noProgress = 0;
+      this.bestDist = Infinity;
+      return;
+    }
+    if (goal.x !== this.prevGoalX || goal.z !== this.prevGoalZ) {
+      this.prevGoalX = goal.x;
+      this.prevGoalZ = goal.z;
+      this.bestDist = Infinity;
+      this.noProgress = 0;
+    }
+    const d = Math.hypot(goal.x - agent.x, goal.z - agent.z);
+    // 少しでも近づけていれば詰まっていない。しきい値は経路のぶれを吸収する程度。
+    if (d < this.bestDist - 0.4) {
+      this.bestDist = d;
+      this.noProgress = 0;
+    } else {
+      this.noProgress += DT;
+    }
+  }
+
   /** 見えている逃走者のうち、最も近い者。 */
   private pickVisiblePrey(ctx: AiContext, agent: Agent): Agent | null {
     let best: Agent | null = null;
@@ -284,6 +343,7 @@ export class SeekerBrain {
   private pickPatrolGoal(ctx: AiContext, agent: Agent): { x: number; z: number } | null {
     const nav = ctx.nav;
     const p = ctx.params.seeker;
+    const now = ctx.game.state.time;
     const lockedBoxes = ctx.game.state.obstacles.filter(
       (o) => o.kind === 'box' && o.lockedBy === 'hider',
     );
@@ -301,6 +361,17 @@ export class SeekerBrain {
         const age = ctx.game.state.time - ctx.coop.seeker.grid[i];
         const dist = Math.hypot(x - agent.x, z - agent.z);
         if (dist < 3) continue;
+        // 直前に諦めた目標のあたりは、しばらく選ばない。
+        // 選び直しても同じ場所が最高点のままだと、諦めた意味がなくなる。
+        let abandoned = false;
+        for (const a of this.avoid) {
+          if (now - a.t > AVOID_TIME) continue;
+          if (Math.hypot(x - a.x, z - a.z) < AVOID_RADIUS) {
+            abandoned = true;
+            break;
+          }
+        }
+        if (abandoned) continue;
 
         let score = age - dist * p.patrolDistWeight;
         for (const b of lockedBoxes) {
