@@ -92,7 +92,7 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
-    boostGrabDist: 7,
+    boostGrabDist: 10,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,
