@@ -1,7 +1,14 @@
 // 鬼の思考。見えていれば追う、見失えば最後の目撃地点、それも無ければ
 // 「長く見ていない場所」を優先して巡回する。ロックされた箱は隠れ場所の手がかりとして重視する。
 
-import { CLIMB_REACH, GRAB_RANGE, STAMINA_MAX, VIEW_DIST, VIEW_FOV } from '../core/config';
+import {
+  CLIMB_REACH,
+  GRAB_RANGE,
+  SEEKER_SPEED,
+  STAMINA_MAX,
+  VIEW_DIST,
+  VIEW_FOV,
+} from '../core/config';
 import { canSee } from '../core/vision';
 import type { Action, Agent, Obstacle } from '../core/types';
 import {
@@ -53,7 +60,7 @@ export class SeekerBrain {
     const prey = this.pickVisiblePrey(ctx, agent);
     if (prey) {
       this.mode = 'chase';
-      this.goal = { x: prey.x, z: prey.z };
+      this.goal = this.interceptPoint(ctx, agent, prey, p.chaseLeadTime);
       this.path = [];
     } else {
       const lead = this.recallLead(ctx, agent);
@@ -109,9 +116,12 @@ export class SeekerBrain {
     act.jump = shouldJump(ctx, agent, dir.mx, dir.mz, climbing && goalDist < 4.5);
 
     // 追跡中は獲物を、それ以外は進行方向を少しずつ振りながら見る。
+    // 目標は迎撃点でも、視線は相手そのものに置く。先を見ると視野角から
+    // 相手が外れて、回り込んでいる最中に見失う。
     if (this.mode === 'chase') {
-      act.aimX = this.goal.x - agent.x;
-      act.aimZ = this.goal.z - agent.z;
+      const look = prey ?? this.goal;
+      act.aimX = look.x - agent.x;
+      act.aimZ = look.z - agent.z;
     } else {
       const base = Math.atan2(dir.mx, dir.mz);
       this.scanAngle += p.scanSpeed * (1 / 60);
@@ -124,6 +134,47 @@ export class SeekerBrain {
     // それ以外は、登る途中で詰まったときにどかせるようにしておく。
     if (!climbing || goalDist >= 4.5) this.handleObstruction(ctx, agent, act, dir);
     return act;
+  }
+
+  /**
+   * 追いかける先。相手の**現在位置**ではなく、進路を先読みした迎撃点を返す。
+   *
+   * 鬼は逃げる側より遅い（8.8 対 9.4）ので、現在位置を追い続けると真後ろに
+   * つくだけで永久に追いつけない。実際、1v1 のトレースでは 50 秒間
+   * 9〜13 m の距離を保ったまま一度も詰められていなかった。
+   * 相手が曲がったときに内側を取れるよう、到達までにかかる時間ぶんだけ
+   * 進路の先を狙う。
+   */
+  private interceptPoint(
+    ctx: AiContext,
+    agent: Agent,
+    prey: Agent,
+    leadTime: number,
+  ): { x: number; z: number } {
+    const here = { x: prey.x, z: prey.z };
+    if (leadTime <= 0) return here;
+
+    // 到達時間と迎撃点は互いに依存するので数回だけ回して近づける。
+    // 相手の方が速いと解が発散するため、leadTime で頭打ちにする。
+    let t = Math.hypot(prey.x - agent.x, prey.z - agent.z) / SEEKER_SPEED;
+    for (let i = 0; i < 3; i++) {
+      t = Math.min(t, leadTime);
+      const px = prey.x + prey.vx * t;
+      const pz = prey.z + prey.vz * t;
+      t = Math.hypot(px - agent.x, pz - agent.z) / SEEKER_SPEED;
+    }
+    t = Math.min(t, leadTime);
+
+    const x = prey.x + prey.vx * t;
+    const z = prey.z + prey.vz * t;
+
+    // 予測点が壁や箱の中だと、そこへ向かう経路が取れずに動きが濁る。
+    // その場合は素直に現在位置を追う。
+    const nav = ctx.nav;
+    const cx = nav.cx(x);
+    const cz = nav.cx(z);
+    if (!nav.inBounds(cx, cz) || nav.blocked[nav.idx(cx, cz)]) return here;
+    return { x, z };
   }
 
   /** 見えている逃走者のうち、最も近い者。 */
