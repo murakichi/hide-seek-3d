@@ -234,10 +234,21 @@ export class SeekerBrain {
     return best ? { x: best.x, z: best.z } : null;
   }
 
-  /** チームの記憶から、まだ新しい目撃情報を拾う。 */
+  /**
+   * チームの記憶から、まだ新しい目撃情報を拾う。
+   *
+   * 記憶はチームで共有しているので、そのまま拾うと**全員が同じ 1 点へ向かう**。
+   * 実際 3v3 のトレースでは 3 人が試合中ずっと互いに 3 m 以内に固まり、
+   * 全員が同じ `investigate goal` を持っていた。3 人いても網は 1 人ぶんにしかならない。
+   * そこで 1 つの手がかりに向かうのは近い順に `leadMaxSeekers` 人までとし、
+   * あぶれた鬼は巡回に回して別の場所を見る（巡回側には元から分散処理がある）。
+   */
   private recallLead(ctx: AiContext, agent: Agent): { x: number; z: number } | null {
     const mem = ctx.game.state.memory.seeker;
     const p = ctx.params.seeker;
+    const mates = ctx.game.state.agents.filter(
+      (a) => a.team === 'seeker' && !a.caught && a.id !== agent.id,
+    );
     let best: { x: number; z: number } | null = null;
     let bestScore = Infinity;
     for (const [id, rec] of mem) {
@@ -247,6 +258,14 @@ export class SeekerBrain {
       if (age > p.memoryTrust) continue;
       const d = Math.hypot(rec.x - agent.x, rec.z - agent.z);
       if (d < 1.2) continue; // そこには居なかった
+
+      // 自分より近い味方が定員ぶん居るなら、その手がかりは任せる。
+      let closer = 0;
+      for (const m of mates) {
+        if (Math.hypot(m.x - rec.x, m.z - rec.z) < d) closer++;
+      }
+      if (closer >= p.leadMaxSeekers) continue;
+
       const score = d + age * 2;
       if (score < bestScore) {
         bestScore = score;
