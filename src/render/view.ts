@@ -8,6 +8,7 @@ import {
   SMOKE_HEIGHT,
   SMOKE_RADIUS,
   VIEW_DIST,
+  viewDistFor,
   VIEW_FOV,
 } from '../core/config';
 import type { Game } from '../core/game';
@@ -354,6 +355,11 @@ export class GameView {
       this.viewCone.visible = true;
       this.viewCone.position.set(player.x, player.y + 0.06, player.z);
       this.viewCone.rotation.z = player.facing;
+      // 鬼の視界は人数で割られるので、扇の大きさも合わせる。
+      // ここがずれると「見えているはずなのに見つからない」と感じる。
+      const range =
+        player.team === 'seeker' ? viewDistFor(s.config.seekers) : VIEW_DIST;
+      this.viewCone.scale.setScalar(range / VIEW_DIST);
     } else {
       this.viewCone.visible = false;
     }
