@@ -580,27 +580,13 @@ export class HiderBrain {
       const pz = agent.z + dz * clear;
       let score = clear * 1.8;
 
-      // 鬼から離れられるか。**人数で割って平均にする。**
-      //
-      // 以前はここを合算していた。1 人あたり最大 80 点前後なので、鬼が 3 人いると
-      // 最大 240 点になり、壁のペナルティ（最大 24 点）を完全に飲み込んでいた。
-      // その結果 3v3 では「全員から離れる」が「アリーナの外周へ逃げる」に化けて、
-      // 壁まで 3m 未満で過ごすティックが 1v1 の 20.2% に対し 45.9% まで上がり、
-      // 隅に追い詰められて狩られていた（3v3 の勝率は 1%）。
-      // 逃げたい強さは追ってくる人数に比例しない。近い相手ほど効くのは
-      // 下の「すり抜け」判定が個別に見ている。
-      let awayScore = 0;
       for (const t of threats) {
         const before = Math.hypot(t.x - agent.x, t.z - agent.z);
         const after = Math.hypot(t.x - px, t.z - pz);
-        awayScore += (after - before) * p.fleeDistWeight * 7;
+        score += (after - before) * p.fleeDistWeight * 7;
         // 相手のすぐ横をすり抜けるコースは、触られて終わるので強く避ける。
-        // こちらは合算のままにする。挟まれているコースは実際に人数ぶん危ない。
         if (after < 3.5) score -= 60;
       }
-      // 完全な平均（/ n）だと 2v2 が落ちたので、√人数で割る中間にしてある。
-      // 追ってくる人数が増えれば逃げたい強さも増すが、比例ではない。
-      score += awayScore / Math.sqrt(threats.length);
 
       // 壁や隅に貼り付くと逃げ場が無くなる。
       const wallGap = Math.min(ARENA_HALF - Math.abs(px), ARENA_HALF - Math.abs(pz));
