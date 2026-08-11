@@ -32,8 +32,6 @@ export interface SeekerParams {
 }
 
 export interface HiderParams {
-  /** 運搬中「箱が動いていない」と判断するまでの秒数（短いほど早く見切る） */
-  haulStallTime: number;
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -79,7 +77,6 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
-    haulStallTime: 0.5,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,

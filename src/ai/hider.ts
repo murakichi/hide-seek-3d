@@ -201,7 +201,7 @@ export class HiderBrain {
         // 下の «諦める» に落ちる。積むかどうかを事前に判断しないのは、
         // 積み方の作り込みが逃げる側のサイクルの仕事だから（ここでは機能を使えるようにするだけ）。
         if (this.boxStall > 0.35 && agent.grounded) act.jump = true;
-        if (this.boxStall > ctx.params.hider.haulStallTime) {
+        if (this.boxStall > 1.2) {
           // その置き場所自体が無理筋のこともあるので、箱と一緒にしばらく避ける。
           this.avoidSlots.set(this.job.slot, s.time + 8);
           this.abandon(ctx, box.id);
