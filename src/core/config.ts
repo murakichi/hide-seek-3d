@@ -143,7 +143,7 @@ export const VIEW_DIST = 19;
  * 視力の設定ではない。`huntTimeFor` と同じ種類の釣り合い取り。
  */
 export function viewDistFor(seekers: number): number {
-  return VIEW_DIST / Math.sqrt(Math.max(1, seekers));
+  return VIEW_DIST / Math.max(1, seekers);
 }
 /** この距離以内なら視野角外でも気配で察知する */
 export const PERIPHERAL_DIST = 3.2;
