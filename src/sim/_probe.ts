@@ -1,37 +1,42 @@
 // 一時的な計測スクリプト（改善サイクル用・使い捨て）。
-// issue #21 / #13。「高所は本当に安全か」「そもそも登れているか」を測る。
 //
-//   - 追跡中に到達した最高高度
-//   - CATCH_VERTICAL(1.6) を超える高さに居たティック（地上の鬼からは捕獲不能）
-//   - その高さで捕まった回数
-//   - 大箱（上面 > 1.6）のうち「地上から登れる踏み台が 3m 以内に無い」ものの数
-//     ＝ 踏み台をどければ鬼が登れなくなる候補
+// A. 高所（issue #13）— 待機先を高所にする変更が効いているか
+//    - 追跡中に y > CATCH_VERTICAL(1.6) に居たティック（地上からは捕獲不能）
+//    - その高さで捕まった回数
+//
+// B. 運搬の空回り（ユーザーからの指摘）— 箱が壁に引っ掛かって同じ動作を繰り返していないか
+//    - 準備フェーズで「掴んでいるのに箱が動いていない」ティックの割合
+//    - 同じ箱を掴み直した回数（諦めても戻ってきていないか）
+//    - 準備フェーズのうち、空回りに溶けた秒数
 //
 // 使い方: npx tsx src/sim/_probe.ts <hiders> <seekers> [seed0]
 
 import { AiDirector } from '../ai/director';
 import { DEFAULT_PARAMS } from '../ai/params';
-import { CATCH_VERTICAL, CLIMB_REACH, DT, HUNT_TIME, PREP_TIME } from '../core/config';
+import { CATCH_VERTICAL, DT, HUNT_TIME, PREP_TIME } from '../core/config';
 import { Game } from '../core/game';
 import type { MatchConfig } from '../core/types';
 
 const MAX_TICKS = Math.ceil((PREP_TIME + HUNT_TIME + 2) / DT);
-const GAMES = 40;
+const GAMES = 30;
 const HIDERS = Number(process.argv[2] ?? 1);
 const SEEKERS = Number(process.argv[3] ?? 1);
 const SEED0 = Number(process.argv[4] ?? 1234);
 
+// A
 let huntTicks = 0;
-let aboveCatchTicks = 0;
-let anyHeightTicks = 0;
-let maxHeightSum = 0;
-let hiderCount = 0;
+let highTicks = 0;
 let caught = 0;
 let caughtHigh = 0;
-/** 追跡開始時点の「高所」候補 */
-let perches = 0;
-let perchesIsolated = 0;
-let gamesWithIsolated = 0;
+let survived = 0;
+let totalHiders = 0;
+
+// B
+let holdTicks = 0; // 箱を掴んでいたティック
+let stalledTicks = 0; // 掴んでいるのに箱が動いていないティック
+let regrabs = 0; // 一度離した箱をまた掴んだ回数
+let grabs = 0;
+let lockedAtHunt = 0;
 
 for (let g = 0; g < GAMES; g++) {
   const config: MatchConfig = {
@@ -42,53 +47,47 @@ for (let g = 0; g < GAMES; g++) {
   };
   const game = new Game(config);
   const ai = new AiDirector(game, DEFAULT_PARAMS);
-  const maxH = new Map<number, number>();
   const prevCaught = new Set<number>();
-  let counted = false;
+  const prevGrab = new Map<number, number>();
+  const grabbedBefore = new Map<number, Set<number>>();
+  const lastBoxPos = new Map<number, { x: number; z: number }>();
+  let countedLocks = false;
 
   for (let t = 0; t < MAX_TICKS; t++) {
     const actions = ai.tick();
     const s = game.state;
 
-    if (s.phase === 'hunt') {
-      if (!counted) {
-        counted = true;
-        // 追跡開始時点の地形を数える
-        let iso = 0;
-        for (const o of s.obstacles) {
-          if (o.kind === 'wall' || o.kind === 'ramp' || o.kind === 'pad') continue;
-          const top = o.y + o.h;
-          if (top <= CATCH_VERTICAL) continue; // 立っても捕獲を防げない
-          perches++;
-          // 地上から登れる踏み台（上面 <= CLIMB_REACH）が近くにあるか
-          let step = false;
-          for (const q of s.obstacles) {
-            if (q.id === o.id || q.kind === 'wall') continue;
-            const qtop = q.y + q.h;
-            const climbableFromGround = q.kind === 'pad' || q.kind === 'ramp' || qtop <= CLIMB_REACH;
-            if (!climbableFromGround) continue;
-            // その踏み台の上から o の上面へ届くか
-            const reachTop = q.kind === 'pad' ? 3.0 : qtop + CLIMB_REACH;
-            if (reachTop < top) continue;
-            const gap =
-              Math.hypot(q.x - o.x, q.z - o.z) - Math.max(o.hw, o.hd) - Math.max(q.hw, q.hd);
-            if (gap < 3) {
-              step = true;
-              break;
-            }
-          }
-          if (!step) iso++;
+    if (s.phase === 'prep') {
+      for (const a of s.agents) {
+        if (a.team !== 'hider') continue;
+        const held = a.grabbed;
+        const prev = prevGrab.get(a.id) ?? -1;
+        if (held >= 0 && held !== prev) {
+          grabs++;
+          const seen = grabbedBefore.get(a.id) ?? new Set<number>();
+          if (seen.has(held)) regrabs++;
+          seen.add(held);
+          grabbedBefore.set(a.id, seen);
         }
-        perchesIsolated += iso;
-        if (iso > 0) gamesWithIsolated++;
-      }
+        prevGrab.set(a.id, held);
 
-      huntTicks += s.agents.filter((a) => a.team === 'hider' && !a.caught).length;
+        if (held >= 0) {
+          holdTicks++;
+          const box = s.obstacles[held];
+          const last = lastBoxPos.get(held);
+          if (last && Math.hypot(box.x - last.x, box.z - last.z) < 0.02) stalledTicks++;
+          lastBoxPos.set(held, { x: box.x, z: box.z });
+        }
+      }
+    } else if (s.phase === 'hunt') {
+      if (!countedLocks) {
+        countedLocks = true;
+        lockedAtHunt += s.obstacles.filter((o) => o.lockedBy === 'hider').length;
+      }
       for (const a of s.agents) {
         if (a.team !== 'hider' || a.caught) continue;
-        if (a.y > 0.4) anyHeightTicks++;
-        if (a.y > CATCH_VERTICAL) aboveCatchTicks++;
-        maxH.set(a.id, Math.max(maxH.get(a.id) ?? 0, a.y));
+        huntTicks++;
+        if (a.y > CATCH_VERTICAL) highTicks++;
       }
     }
 
@@ -107,23 +106,22 @@ for (let g = 0; g < GAMES; g++) {
 
   for (const a of game.state.agents) {
     if (a.team !== 'hider') continue;
-    hiderCount++;
-    maxHeightSum += maxH.get(a.id) ?? 0;
+    totalHiders++;
+    if (!a.caught) survived++;
   }
 }
 
 const pct = (n: number, d: number): string => `${((n / Math.max(1, d)) * 100).toFixed(2)}%`;
 console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合 (seed0=${SEED0})`);
-console.log(`  CATCH_VERTICAL=${CATCH_VERTICAL}  CLIMB_REACH=${CLIMB_REACH.toFixed(2)}`);
-console.log(`  追跡中のティック(逃げる側のべ): ${huntTicks}`);
-console.log(`    y > 0.4（何かに乗っている）: ${anyHeightTicks} (${pct(anyHeightTicks, huntTicks)})`);
+console.log('  [A] 高所');
+console.log(`    y > ${CATCH_VERTICAL} に居たティック: ${highTicks} / ${huntTicks} (${pct(highTicks, huntTicks)})`);
+console.log(`    捕獲 ${caught} 件  うちその高さで捕まった: ${caughtHigh}`);
+console.log(`    生存 ${survived} / ${totalHiders} 人 (${pct(survived, totalHiders)})`);
+console.log('  [B] 運搬の空回り（準備フェーズ）');
+console.log(`    掴んでいたティック: ${holdTicks}  1 試合あたり ${(holdTicks * DT / GAMES).toFixed(1)} 秒`);
 console.log(
-  `    y > ${CATCH_VERTICAL}（地上からは捕獲不能）: ${aboveCatchTicks} (${pct(aboveCatchTicks, huntTicks)})`,
+  `    うち箱が動いていない: ${stalledTicks} (${pct(stalledTicks, holdTicks)})  ` +
+    `1 試合あたり ${(stalledTicks * DT / GAMES).toFixed(1)} 秒`,
 );
-console.log(`  1 人あたりの到達最高高度: 平均 ${(maxHeightSum / Math.max(1, hiderCount)).toFixed(2)}`);
-console.log(`  捕獲 ${caught} 件  うち y > ${CATCH_VERTICAL} で捕まった: ${caughtHigh}`);
-console.log(
-  `  高所候補（上面 > ${CATCH_VERTICAL}）: 1 試合あたり ${(perches / GAMES).toFixed(1)} 個  ` +
-    `うち踏み台が 3m 以内に無い: ${(perchesIsolated / GAMES).toFixed(1)} 個`,
-);
-console.log(`  「孤立した高所」が 1 個以上ある試合: ${gamesWithIsolated} / ${GAMES}`);
+console.log(`    掴み直し: ${grabs} 回中 ${regrabs} 回が「前にも掴んだ箱」 (${pct(regrabs, grabs)})`);
+console.log(`    追跡開始時のロック箱数: ${(lockedAtHunt / GAMES).toFixed(1)} 個/試合`);
