@@ -7,6 +7,7 @@ import {
   SMOKE_HEIGHT,
   SMOKE_RADIUS,
   VIEW_DIST,
+  viewDistFor,
   VIEW_FOV,
 } from './config';
 import { angleDiff, hasLineOfSight, segmentHitsSphere } from './physics';
@@ -17,7 +18,9 @@ export function canSee(state: GameState, observer: Agent, target: Agent): boolea
   const dx = target.x - observer.x;
   const dz = target.z - observer.z;
   const dist = Math.hypot(dx, dz);
-  if (dist > VIEW_DIST) return false;
+  // 鬼の視界だけ人数で割る（盤面あたりの探索能力を一定にするため）。
+  const range = observer.team === 'seeker' ? viewDistFor(state.config.seekers) : VIEW_DIST;
+  if (dist > range) return false;
 
   const peripheral = observer.team === 'hider' ? HIDER_SENSE_DIST : PERIPHERAL_DIST;
   if (dist > peripheral) {
