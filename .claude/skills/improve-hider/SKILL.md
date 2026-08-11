@@ -77,17 +77,23 @@ master が動いていないか確認する。**動いていたら取り込ん�
 
 `EnterWorktree` でこの作業用の worktree を切る（`fix-hider-*` など）。以降の編集はその中で行う。
 
-### 1. 現状を測る
+### 1. 現状を知る
+
+**手元で勝率を測らない**（CLAUDE.md「勝率は CI が測る」）。基準値は直近マージされた
+PR に CI が貼った表にある。
 
 ```bash
-npm run sim -- --games 24 --hiders 1 --seekers 1
-npm run sim -- --games 24 --hiders 2 --seekers 2
-npm run sim -- --games 24 --hiders 3 --seekers 3
+gh pr list --state merged --limit 3     # 直近のマージ済み PR
+gh pr view <n> --comments               # 「勝率（逃げる側）」の表を読む
 ```
 
 3 構成すべてを見る。1 構成だけ直すと他を壊したことに気づけない。
-24 試合の勝率は ±10 ポイントぶれるので、その範囲の差を「改善」と読まない。
-`平均生存人数` は勝率より分散が小さいので、変化の兆しを見るのに向いている。
+`平均生存` は勝率より分散が小さいので、変化の兆しを見るのに向いている。
+手元では疎通だけ確かめる（数字は当てにしない）。
+
+```bash
+npm run sim -- --games 6 --hiders 2 --seekers 2
+```
 
 ### 2. 負け筋をトレースで見る
 
@@ -117,10 +123,24 @@ npm run trace -- --hiders 3 --seekers 3 --find-loss --interval 5
 - **原因が絞れていない** → 直さずに `src/sim/_probe.ts` を書く。仮説を数値で確かめてから直す。
   「4.7% のティックで移動入力がゼロ」のような数字が出て初めて手が打てる。
 
-### 4. 再測定する
+### 4. 手元で確かめて、測定は CI に出す
 
-手順 1 と同じコマンドを回し、狙った構成が改善し、**他の構成が悪化していないこと**を確認する。
-悪化していたら戻す。tune の結果を採用したなら `--seed` を変えて汎化を確かめる。
+```bash
+npm run sim -- --games 6 --hiders 2 --seekers 2                   # 落ちないこと
+npm run trace -- --hiders 3 --seekers 3 --find-loss --interval 5  # 直した挙動が消えたか
+```
+
+6 試合の勝率は当てにならない。ここでは**手順 2 で見つけた「おかしさ」がトレースから
+消えたか**で判断する。勝率の採否判定は draft PR を出して CI にやらせる。
+
+```bash
+git push -u origin <ブランチ名> && gh pr create --draft --fill
+gh pr checks --watch && gh pr view --comments
+```
+
+狙った構成が改善し、**他の構成が悪化していないこと**を CI の差分で確認する。
+悪化していたら直して push する（同じコメントが更新される）。
+CI は 4 つの seed で測るので、tune の結果を採用した場合の汎化もここで見える。
 
 ### 5. 記録する
 
@@ -135,12 +155,14 @@ npm run trace -- --hiders 3 --seekers 3 --find-loss --interval 5
 ```bash
 git fetch origin && git merge origin/master   # 衝突はここで解決する
 npm run build
-git push -u origin <ブランチ名>
-gh pr create --title "..." --body "..."
+git push -u origin <ブランチ名>               # 手順 4 で draft を出していれば push だけでよい
+gh pr ready                                   # 差分が良ければ draft を外す
+gh pr checks --watch && gh pr view --comments # マージ直前の値を確認する
 ```
 
-衝突を解決したら**勝率を測り直す**。本文には何を直したか・トレースで観測した事実・
-勝率の前後（1v1 / 2v2 / 3v3）を書く。マージは `/review-prs` が行う。
+衝突を解決したら push し直して**測り直させる**。本文には何を直したか・
+トレースで観測した事実・CI が出した勝率の差分（1v1 / 2v2 / 3v3）を書く。
+マージは `/review-prs` が行う。
 最後に `ExitWorktree` で抜ける。
 
 ## ルールの限界に当たったら

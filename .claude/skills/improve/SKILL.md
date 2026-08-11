@@ -32,15 +32,19 @@ PR を溜めたまま新しい作業を始めると、`src/ai` の同じ場所�
 
 `gh issue list` の open な件と、それぞれの担当ラベル（`seeker` / `hider` / `balance`）を確認する。
 
-### 3. 現状を測る
+### 3. 現状を知る
+
+**手元で勝率を測らない**（CLAUDE.md「勝率は CI が測る」）。直近マージされた PR に
+CI が貼った表を読む。
 
 ```bash
-npm run sim -- --games 24 --hiders 1 --seekers 1
-npm run sim -- --games 24 --hiders 2 --seekers 2
-npm run sim -- --games 24 --hiders 3 --seekers 3
+gh pr list --state merged --limit 3     # 直近のマージ済み PR
+gh pr view <n> --comments               # 「勝率（逃げる側）」の表を読む
 ```
 
 数字はすべて逃げる側の勝率。目標は **どの構成でも 35〜50%**。
+まだ CI の表が付いた PR が無ければ、`gh workflow run 勝率` を master 上で起動して
+その実行のジョブサマリを読む（`gh run watch`）。
 
 ### 4. どのループを回すか決める
 

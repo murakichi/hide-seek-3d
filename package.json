@@ -8,6 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "sim": "tsx src/sim/headless.ts",
+    "compare": "tsx src/sim/compare.ts",
+    "report": "tsx src/sim/report.ts",
     "tune": "tsx src/sim/tune.ts",
     "trace": "tsx src/sim/trace.ts"
   },
