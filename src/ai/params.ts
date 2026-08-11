@@ -37,6 +37,8 @@ export interface SeekerParams {
 }
 
 export interface HiderParams {
+  /** 視線が切れている間だけ、この距離までパックを取りに行く（0 で無効） */
+  boostGrabDist: number;
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -83,6 +85,7 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
+    boostGrabDist: 10,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,
