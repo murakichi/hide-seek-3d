@@ -36,6 +36,7 @@ export interface SeekerParams {
    * 短すぎると目標が定まらず往復する。長いと壁際で固まったまま試合が終わる。
    */
   repickAfter: number;
+  /**
   /** 見回し（首振り）の角速度 */
   scanSpeed: number;
   /** 進路を塞ぐ箱をどけると判断する距離 */
