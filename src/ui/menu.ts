@@ -68,6 +68,7 @@ export class Menu {
         <div class="controls">
           <div><kbd>WASD</kbd> 移動 <kbd>Shift</kbd> ダッシュ <kbd>Space</kbd> ジャンプ</div>
           <div><kbd>E</kbd>/左クリック 箱をつかむ <kbd>F</kbd>/右クリック ロック・解除 <kbd>マウス</kbd> 視線</div>
+          <div><kbd>ホイール</kbd> ズーム <kbd>C</kbd> 俯瞰・追従 <kbd>中ドラッグ</kbd> 視点移動</div>
         </div>
       </div>`;
 
