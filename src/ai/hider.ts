@@ -374,7 +374,10 @@ export class HiderBrain {
     // 「隙間の向こうの高台」に乗れれば追ってこられない。
     // 高所の攻略はこれまで 4 回失敗しているが、失敗の理由はどれも
     // 「鬼も同じ踏み台で登ってくる」ことだった。隙間を挟むとその前提が崩れる。
-    if (this.hopToPerch(ctx, agent, act)) return act;
+    // ただし追いつかれかけているときは跳びに行かない。
+    // 逃走より前に置いたら 1v1 が -18 pt 落ちた（CI）。高台へ走る間は
+    // 一直線に動くので、間合いが詰まっている場面では的になる。
+    if (nearest > p.fleeDashDist && this.hopToPerch(ctx, agent, act)) return act;
 
     // 足場の上に居て、まだ誰も同じ高さに来ていないなら降りない。
     if (this.holdHighGround(ctx, agent, act, nearest)) return act;
