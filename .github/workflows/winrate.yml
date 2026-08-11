@@ -1,0 +1,118 @@
+name: 勝率
+
+# PR ごとに、master と同じ seed 列で対戦させて勝率の差分を出す。
+# シミュレーションは決定論的なので、どこで走らせても同じ数字が出る。
+# 手元で何十分も CPU を回す代わりに、構成 × seed を並列ジョブに割って測る。
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      games:
+        description: seed ごとの試合数（構成 × seed の各ジョブで head/base 両方を走らせる）
+        default: '25'
+
+# 同じ PR に push が続いたら古い測定は捨てる。
+concurrency:
+  group: winrate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  measure:
+    name: ${{ matrix.config.label }} seed=${{ matrix.seed }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1234, 4242, 9001, 31337]
+        config:
+          - { label: 1v1, hiders: 1, seekers: 1 }
+          - { label: 2v2, hiders: 2, seekers: 2 }
+          - { label: 3v3, hiders: 3, seekers: 3 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # 比較対象（PR のベースコミット）を別の作業ツリーに出す。
+      # そちらの CLI は使わず、head 側の compare.ts が runSeries だけを import する。
+      - name: ベースの作業ツリーを用意
+        id: base
+        if: github.event_name == 'pull_request'
+        run: |
+          git worktree add "$RUNNER_TEMP/base" ${{ github.event.pull_request.base.sha }}
+          echo "dir=$RUNNER_TEMP/base" >> "$GITHUB_OUTPUT"
+
+      - name: 対戦
+        run: |
+          npx tsx src/sim/compare.ts \
+            --games "${{ github.event.inputs.games || '25' }}" \
+            --hiders ${{ matrix.config.hiders }} \
+            --seekers ${{ matrix.config.seekers }} \
+            --seed ${{ matrix.seed }} \
+            --label ${{ matrix.config.label }} \
+            ${{ steps.base.outputs.dir && format('--base {0}', steps.base.outputs.dir) || '' }} \
+            --out "${{ matrix.config.label }}-${{ matrix.seed }}.json" \
+            > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: winrate-${{ matrix.config.label }}-${{ matrix.seed }}
+          path: ${{ matrix.config.label }}-${{ matrix.seed }}.json
+          retention-days: 14
+
+  report:
+    name: 集計
+    needs: measure
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: winrate-*
+          path: results
+          merge-multiple: true
+
+      - name: Markdown を作る
+        run: |
+          npx tsx src/sim/report.ts results > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      # fork からの PR では GITHUB_TOKEN が読み取り専用でコメントできない。
+      # その場合もジョブサマリには出ているので、そちらを見る。
+      - name: PR にコメントする
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+                 --jq '[.[] | select(.body | startswith("<!-- winrate-report -->")) | .id] | first // empty')
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@report.md
+          else
+            gh pr comment "$PR" --body-file report.md
+          fi

@@ -66,16 +66,18 @@ git checkout master && git fetch origin && git merge --ff-only origin/master
 
 `EnterWorktree` で worktree を切る（`balance-*` など）。
 
-### 1. 現状を測る
+### 1. 現状を知る
+
+**手元で勝率を測らない**（CLAUDE.md「勝率は CI が測る」）。基準値は直近マージされた
+PR に CI が貼った表にある。
 
 ```bash
-npm run sim -- --games 30 --hiders 1 --seekers 1
-npm run sim -- --games 30 --hiders 2 --seekers 2
-npm run sim -- --games 30 --hiders 3 --seekers 3
+gh pr list --state merged --limit 3     # 直近のマージ済み PR
+gh pr view <n> --comments               # 「勝率（逃げる側）」の表を読む
 ```
 
-ルール変更は全構成に効くので、行動サイクルより試合数を多めに取る。
-`初補足まで`（探索の速さ）と `平均生存人数`（勝率より分散が小さい）も併せて見る。
+ルール変更は全構成に効くので、3 構成すべてを見る。
+`初補足`（探索の速さ）と `平均生存`（勝率より分散が小さい）も併せて見る。
 
 ### 2. どちらの問題かを見極める
 
@@ -112,17 +114,19 @@ npm run sim -- --games 30 --hiders 3 --seekers 3
 `fleeDirection` のレイ長、`followPath` の到達判定、詰まり判定のしきい値は
 すべて速度に対する相対値として決めてある。片方だけ変えると AI が壁に突っ込む。
 
-### 4. 再測定する
+### 4. 測定は CI に出す
 
-手順 1 と同じコマンドを回す。**全構成を見る。** ルール変更は 1 構成だけを直すことができない。
+手元では疎通だけ確かめ、数字は draft PR を出して CI に測らせる。
+**全構成を見る。** ルール変更は 1 構成だけを直すことができない。
 
 ```bash
-npm run sim -- --games 30 --hiders 1 --seekers 1
-npm run sim -- --games 30 --hiders 2 --seekers 2
-npm run sim -- --games 30 --hiders 3 --seekers 3
+npm run sim -- --games 6 --hiders 2 --seekers 2                  # 落ちないこと
+git push -u origin <ブランチ名> && gh pr create --draft --fill
+gh pr checks --watch && gh pr view --comments
 ```
 
 目標は **どの構成でも逃げ側 35〜50%**。1 つを直して他が目標を外れたなら、その変更は採らない。
+CI の表は master との差分つきなので、「動かした量」がそのまま読める。
 
 数値が動かなかった場合も、それは収穫として日記に残す
 （補給パックを足したとき、勝率は誤差の範囲でしか動かなかった。
@@ -151,11 +155,13 @@ npm run dev
 ```bash
 git fetch origin && git merge origin/master
 npm run build
-git push -u origin <ブランチ名>
-gh pr create --title "..." --body "..."
+git push -u origin <ブランチ名>               # 手順 4 で draft を出していれば push だけでよい
+gh pr ready                                   # 差分が良ければ draft を外す
+gh pr checks --watch && gh pr view --comments # マージ直前の値を確認する
 ```
 
-衝突を解決したら勝率を測り直す。マージは `/review-prs` が行う。
+衝突を解決したら push し直して測り直させる。CI が出した差分を本文と
+`docs/balance-log.md` に転記する。マージは `/review-prs` が行う。
 最後に `ExitWorktree` で抜ける。
 
 ## 判断の原則

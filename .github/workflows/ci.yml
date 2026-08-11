@@ -20,11 +20,7 @@ jobs:
       - name: 型チェックとビルド
         run: npm run build
 
-      # AI を変更した PR で、勝率が壊れていないかを見るための最低限の対戦。
-      # 24 試合では ±10 ポイントぶれるので、ここでは「異常終了しないこと」と
-      # 目安の数字を出すことが目的。合否判定には使わない。
-      - name: ヘッドレス対戦（参考値）
-        run: |
-          npm run sim -- --games 12 --hiders 1 --seekers 1
-          npm run sim -- --games 12 --hiders 2 --seekers 2
-          npm run sim -- --games 12 --hiders 3 --seekers 3
+      # 対戦が異常終了しないことだけを見る。勝率は winrate.yml が
+      # master との差分つきで測ってコメントする。
+      - name: ヘッドレス対戦の疎通
+        run: npm run sim -- --games 2 --hiders 2 --seekers 2
