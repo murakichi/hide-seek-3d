@@ -120,8 +120,11 @@ export class HiderBrain {
     // 無料**で、そこが唯一の弱点だった。
     if (ctx.game.state.phaseTime < p.perchPrepMargin) {
       this.releaseJob();
-      if (this.hopToPerch(ctx, agent, act)) return act;
       if (this.holdHighGround(ctx, agent, act, Infinity)) return act;
+      // 登る前に踏み台をどける。ジャンプ台で上がるなら踏み台は自分には要らないので、
+      // 残っているぶんは鬼にだけ利する。どけて固めれば押し戻すこともできなくなる。
+      if (this.clearStepForPerch(ctx, agent, act)) return act;
+      if (this.hopToPerch(ctx, agent, act)) return act;
     }
 
     // 残り時間がわずかなら、荷物を捨てて拠点の内側に入る。
@@ -613,6 +616,98 @@ export class HiderBrain {
     act.jump = agent.grounded && best !== null;
     this.path = [];
     this.fleeAngle = null;
+    return true;
+  }
+
+  /**
+   * ジャンプ台で上がれる高台の横に踏み台が残っていたら、それをどけて固める。
+   * 動かしている間 true を返す。
+   *
+   * 自分はジャンプ台で上がるので踏み台は要らない。残っているぶんは
+   * **鬼にだけ利する**（`seeker.ts` の `climbTarget` はそれを使って登ってくる）。
+   * どけたうえでロックすれば、鬼が押し戻して置き直すこともできない
+   * （ロック中の箱は誰にも動かせない。解除には接触して `UNLOCK_TIME` かかる）。
+   */
+  private clearStepForPerch(ctx: AiContext, agent: Agent, act: Action): boolean {
+    const p = ctx.params.hider;
+    if (p.gapHopReach <= 0 || agent.y > CATCH_VERTICAL) return false;
+    const s = ctx.game.state;
+
+    // ジャンプ台で上がれる高台のうち、踏み台が残っているものを探す。
+    let perch: Obstacle | null = null;
+    let step: Obstacle | null = null;
+    let bestD = Infinity;
+    for (const pad of s.obstacles) {
+      if (pad.kind !== 'pad') continue;
+      if (Math.hypot(pad.x - agent.x, pad.z - agent.z) > p.padApproach) continue;
+      for (const o of s.obstacles) {
+        if (o.kind === 'wall' || o.kind === 'pad' || o.kind === 'ramp') continue;
+        const top = o.y + o.h;
+        if (top <= CATCH_VERTICAL || top > PAD_JUMP_REACH) continue;
+        const spread = Math.hypot(o.x - pad.x, o.z - pad.z) - Math.max(o.hw, o.hd) - AGENT_RADIUS;
+        if (spread > p.gapHopReach) continue;
+        // 邪魔な踏み台（地上から登れて、そこから上面へ届くもの）を 1 つ拾う。
+        for (const q of s.obstacles) {
+          if (q.id === o.id || q.kind === 'wall' || q.kind === 'pad' || q.kind === 'ramp') continue;
+          if (q.lockedBy !== null || q.heldBy >= 0) continue;
+          if (q.hw + q.hd > GRAB_MAX_SIZE) continue;
+          const qtop = q.y + q.h;
+          if (qtop > CLIMB_REACH) continue; // 地上から登れないなら踏み台にならない
+          if (qtop + CLIMB_REACH < top) continue; // そこから上面へ届かない
+          const gap = Math.hypot(q.x - o.x, q.z - o.z) - Math.max(q.hw, q.hd);
+          if (gap >= p.perchIsolation) continue; // 既に十分離れている
+          const d = Math.hypot(q.x - agent.x, q.z - agent.z);
+          if (d < bestD) {
+            bestD = d;
+            perch = o;
+            step = q;
+          }
+        }
+      }
+    }
+    if (!perch || !step) return false;
+
+    const gapNow = Math.hypot(step.x - perch.x, step.z - perch.z) - Math.max(step.hw, step.hd);
+    // 十分どけられたら固める。以降この箱は誰にも動かせない。
+    if (gapNow >= p.perchIsolation + 1.5) {
+      const reach =
+        Math.hypot(step.x - agent.x, step.z - agent.z) - Math.max(step.hw, step.hd) - AGENT_RADIUS;
+      if (reach > GRAB_RANGE * 0.75) {
+        const approach = this.approachPoint(ctx, step, agent);
+        this.moveTo(ctx, agent, act, approach.x, approach.z, false);
+      }
+      act.aimX = step.x - agent.x;
+      act.aimZ = step.z - agent.z;
+      act.lock = true;
+      return true;
+    }
+
+    // まだ近いので押しのける。高台からまっすぐ遠ざかる向きへ。
+    const awayLen = Math.hypot(step.x - perch.x, step.z - perch.z) || 1;
+    const targetX = clampToArena(perch.x + ((step.x - perch.x) / awayLen) * (p.perchIsolation + 2.5));
+    const targetZ = clampToArena(perch.z + ((step.z - perch.z) / awayLen) * (p.perchIsolation + 2.5));
+
+    if (agent.grabbed === step.id) {
+      act.grab = true;
+      this.moveTo(ctx, agent, act, targetX - agent.grabOffX, targetZ - agent.grabOffZ, false);
+      act.aimX = step.x - agent.x;
+      act.aimZ = step.z - agent.z;
+      // つかえたら跳んで抜ける。
+      const moved = Math.hypot(step.x - this.lastBoxX, step.z - this.lastBoxZ);
+      this.lastBoxX = step.x;
+      this.lastBoxZ = step.z;
+      this.boxStall = moved < 0.02 ? this.boxStall + DT : 0;
+      if (this.boxStall > 0.35 && agent.grounded) act.jump = true;
+      return true;
+    }
+
+    const approach = this.approachPoint(ctx, step, agent);
+    this.moveTo(ctx, agent, act, approach.x, approach.z, false);
+    act.aimX = step.x - agent.x;
+    act.aimZ = step.z - agent.z;
+    const reach =
+      Math.hypot(step.x - agent.x, step.z - agent.z) - Math.max(step.hw, step.hd) - AGENT_RADIUS;
+    act.grab = reach < GRAB_RANGE;
     return true;
   }
 
