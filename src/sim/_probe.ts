@@ -1,42 +1,42 @@
 // 一時的な計測スクリプト（改善サイクル用・使い捨て）。
+// 3v3 の勝率が 1% まで落ちている理由を探す。トレースで見えた 2 つを数える。
 //
-// A. 高所（issue #13）— 待機先を高所にする変更が効いているか
-//    - 追跡中に y > CATCH_VERTICAL(1.6) に居たティック（地上からは捕獲不能）
-//    - その高さで捕まった回数
-//
-// B. 運搬の空回り（ユーザーからの指摘）— 箱が壁に引っ掛かって同じ動作を繰り返していないか
-//    - 準備フェーズで「掴んでいるのに箱が動いていない」ティックの割合
-//    - 同じ箱を掴み直した回数（諦めても戻ってきていないか）
-//    - 準備フェーズのうち、空回りに溶けた秒数
+//   A. 味方同士が固まっていないか
+//      - 生存中の逃走者どうしの平均距離
+//      - 2 人以上が 8m 以内に居たティックの割合
+//      - 1 人の鬼が同じティックに 2 人以上を見ていた回数（＝まとめて見つかっている）
+//   B. 壁に貼り付いていないか
+//      - 追跡中に壁まで 3m 未満だったティックの割合（一様なら 25.6%）
+//   C. 発見の速さ
+//      - 追跡開始から各人が最初に見つかるまでの時間
 //
 // 使い方: npx tsx src/sim/_probe.ts <hiders> <seekers> [seed0]
 
 import { AiDirector } from '../ai/director';
 import { DEFAULT_PARAMS } from '../ai/params';
-import { CATCH_VERTICAL, DT, HUNT_TIME, PREP_TIME } from '../core/config';
+import { ARENA_HALF, DT, HUNT_TIME, PREP_TIME } from '../core/config';
 import { Game } from '../core/game';
 import type { MatchConfig } from '../core/types';
+import { canSee } from '../core/vision';
 
 const MAX_TICKS = Math.ceil((PREP_TIME + HUNT_TIME + 2) / DT);
 const GAMES = 30;
-const HIDERS = Number(process.argv[2] ?? 1);
-const SEEKERS = Number(process.argv[3] ?? 1);
+const HIDERS = Number(process.argv[2] ?? 3);
+const SEEKERS = Number(process.argv[3] ?? 3);
 const SEED0 = Number(process.argv[4] ?? 1234);
 
-// A
-let huntTicks = 0;
-let highTicks = 0;
-let caught = 0;
-let caughtHigh = 0;
-let survived = 0;
-let totalHiders = 0;
-
-// B
-let holdTicks = 0; // 箱を掴んでいたティック
-let stalledTicks = 0; // 掴んでいるのに箱が動いていないティック
-let regrabs = 0; // 一度離した箱をまた掴んだ回数
-let grabs = 0;
-let lockedAtHunt = 0;
+let ticks = 0;
+let pairSum = 0;
+let pairCount = 0;
+let closeTicks = 0; // 2 人以上が 8m 以内
+let wallTicks = 0; // 壁まで 3m 未満（のべ人数）
+let hiderTicks = 0;
+let doubleSightTicks = 0; // 1 人の鬼が同じティックに 2 人以上を見た
+let sightTicks = 0; // 鬼が誰かを見ていたティック（のべ鬼数）
+const firstSeen: number[] = [];
+let neverSeen = 0;
+let shelterPairSum = 0;
+let shelterPairCount = 0;
 
 for (let g = 0; g < GAMES; g++) {
   const config: MatchConfig = {
@@ -47,81 +47,82 @@ for (let g = 0; g < GAMES; g++) {
   };
   const game = new Game(config);
   const ai = new AiDirector(game, DEFAULT_PARAMS);
-  const prevCaught = new Set<number>();
-  const prevGrab = new Map<number, number>();
-  const grabbedBefore = new Map<number, Set<number>>();
-  const lastBoxPos = new Map<number, { x: number; z: number }>();
-  let countedLocks = false;
+  const seenAt = new Map<number, number>();
+  let huntStart = -1;
 
   for (let t = 0; t < MAX_TICKS; t++) {
     const actions = ai.tick();
     const s = game.state;
 
-    if (s.phase === 'prep') {
-      for (const a of s.agents) {
-        if (a.team !== 'hider') continue;
-        const held = a.grabbed;
-        const prev = prevGrab.get(a.id) ?? -1;
-        if (held >= 0 && held !== prev) {
-          grabs++;
-          const seen = grabbedBefore.get(a.id) ?? new Set<number>();
-          if (seen.has(held)) regrabs++;
-          seen.add(held);
-          grabbedBefore.set(a.id, seen);
+    if (s.phase === 'hunt') {
+      if (huntStart < 0) {
+        huntStart = s.time;
+        // 拠点どうしの距離（初期配置がそもそも近いのか）
+        const hs = s.agents
+          .filter((a) => a.team === 'hider')
+          .map((a) => ai.shelterOf(a.id))
+          .filter((v): v is { x: number; z: number } => v !== null);
+        for (let i = 0; i < hs.length; i++) {
+          for (let j = i + 1; j < hs.length; j++) {
+            shelterPairSum += Math.hypot(hs[i].x - hs[j].x, hs[i].z - hs[j].z);
+            shelterPairCount++;
+          }
         }
-        prevGrab.set(a.id, held);
+      }
+      ticks++;
+      const alive = s.agents.filter((a) => a.team === 'hider' && !a.caught);
+      for (const a of alive) {
+        hiderTicks++;
+        const gap = Math.min(ARENA_HALF - Math.abs(a.x), ARENA_HALF - Math.abs(a.z));
+        if (gap < 3) wallTicks++;
+      }
+      let close = false;
+      for (let i = 0; i < alive.length; i++) {
+        for (let j = i + 1; j < alive.length; j++) {
+          const d = Math.hypot(alive[i].x - alive[j].x, alive[i].z - alive[j].z);
+          pairSum += d;
+          pairCount++;
+          if (d < 8) close = true;
+        }
+      }
+      if (close) closeTicks++;
 
-        if (held >= 0) {
-          holdTicks++;
-          const box = s.obstacles[held];
-          const last = lastBoxPos.get(held);
-          if (last && Math.hypot(box.x - last.x, box.z - last.z) < 0.02) stalledTicks++;
-          lastBoxPos.set(held, { x: box.x, z: box.z });
-        }
-      }
-    } else if (s.phase === 'hunt') {
-      if (!countedLocks) {
-        countedLocks = true;
-        lockedAtHunt += s.obstacles.filter((o) => o.lockedBy === 'hider').length;
-      }
-      for (const a of s.agents) {
-        if (a.team !== 'hider' || a.caught) continue;
-        huntTicks++;
-        if (a.y > CATCH_VERTICAL) highTicks++;
+      for (const k of s.agents) {
+        if (k.team !== 'seeker' || k.caught) continue;
+        const seen = alive.filter((a) => canSee(s, k, a));
+        if (seen.length > 0) sightTicks++;
+        if (seen.length >= 2) doubleSightTicks++;
+        for (const a of seen) if (!seenAt.has(a.id)) seenAt.set(a.id, s.time - huntStart);
       }
     }
 
-    const yBefore = new Map(
-      game.state.agents.filter((a) => a.team === 'hider').map((a) => [a.id, a.y]),
-    );
     game.step(actions);
-    for (const a of game.state.agents) {
-      if (a.team !== 'hider' || !a.caught || prevCaught.has(a.id)) continue;
-      prevCaught.add(a.id);
-      caught++;
-      if ((yBefore.get(a.id) ?? 0) > CATCH_VERTICAL) caughtHigh++;
-    }
     if (game.state.phase === 'over') break;
   }
 
   for (const a of game.state.agents) {
     if (a.team !== 'hider') continue;
-    totalHiders++;
-    if (!a.caught) survived++;
+    const t0 = seenAt.get(a.id);
+    if (t0 === undefined) neverSeen++;
+    else firstSeen.push(t0);
   }
 }
 
-const pct = (n: number, d: number): string => `${((n / Math.max(1, d)) * 100).toFixed(2)}%`;
+const pct = (n: number, d: number): string => `${((n / Math.max(1, d)) * 100).toFixed(1)}%`;
+const avg = (xs: number[]): string =>
+  xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : '—';
 console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合 (seed0=${SEED0})`);
-console.log('  [A] 高所');
-console.log(`    y > ${CATCH_VERTICAL} に居たティック: ${highTicks} / ${huntTicks} (${pct(highTicks, huntTicks)})`);
-console.log(`    捕獲 ${caught} 件  うちその高さで捕まった: ${caughtHigh}`);
-console.log(`    生存 ${survived} / ${totalHiders} 人 (${pct(survived, totalHiders)})`);
-console.log('  [B] 運搬の空回り（準備フェーズ）');
-console.log(`    掴んでいたティック: ${holdTicks}  1 試合あたり ${(holdTicks * DT / GAMES).toFixed(1)} 秒`);
+console.log('  [A] 味方が固まっていないか');
+console.log(`    拠点どうしの距離: 平均 ${(shelterPairSum / Math.max(1, shelterPairCount)).toFixed(1)}m`);
+console.log(`    追跡中の逃走者どうしの距離: 平均 ${(pairSum / Math.max(1, pairCount)).toFixed(1)}m`);
+console.log(`    2 人以上が 8m 以内に居たティック: ${pct(closeTicks, ticks)}`);
 console.log(
-  `    うち箱が動いていない: ${stalledTicks} (${pct(stalledTicks, holdTicks)})  ` +
-    `1 試合あたり ${(stalledTicks * DT / GAMES).toFixed(1)} 秒`,
+  `    1 人の鬼が同時に 2 人以上を見ていた: ${pct(doubleSightTicks, sightTicks)}（見えていたティックのうち）`,
 );
-console.log(`    掴み直し: ${grabs} 回中 ${regrabs} 回が「前にも掴んだ箱」 (${pct(regrabs, grabs)})`);
-console.log(`    追跡開始時のロック箱数: ${(lockedAtHunt / GAMES).toFixed(1)} 個/試合`);
+console.log('  [B] 壁への貼り付き');
+console.log(`    壁まで 3m 未満: ${pct(wallTicks, hiderTicks)}（一様なら 25.6%）`);
+console.log('  [C] 発見の速さ');
+console.log(
+  `    追跡開始から最初に見つかるまで: 平均 ${avg(firstSeen)} 秒  ` +
+    `（一度も見つからなかった ${neverSeen} 人）`,
+);
