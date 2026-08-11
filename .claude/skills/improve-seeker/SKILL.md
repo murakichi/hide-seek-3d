@@ -35,28 +35,54 @@ git checkout master && git fetch origin && git merge --ff-only origin/master
 把握する。`gh issue list --label seeker` に open な件があれば、優先度の高いものから 1 つ選ぶ。
 無ければ手順 1 の測定で、鬼の勝率が一番低い構成を対象にする。
 
-`EnterWorktree` でこの作業用の worktree を切る（`fix-seeker-*` など）。
-
-### 1. 現状を測る
+**未マージの PR の中身まで読む。** タイトルだけでは足りない。
 
 ```bash
-npm run sim -- --games 80 --hiders 1 --seekers 1
-npm run sim -- --games 80 --hiders 2 --seekers 2
-npm run sim -- --games 80 --hiders 3 --seekers 3
+gh pr list                    # 積まれているもの
+gh pr view <n>                # 本文の測定値まで読む
+gh pr diff <n> --name-only    # seeker.ts / config.ts に触っていないか
+```
+
+見るのは次の 3 点。**ゲームは自分が測っている間にも変わる。**
+
+- **`src/core/config.ts` を触る PR** — 速度・視界・スタミナが変われば、
+  自分の測定値の基準がまるごとずれる。着手前に「何が変わろうとしているか」を知っておく。
+- **`src/ai/seeker.ts` を触る PR** — 衝突する。どの関数かまで見る。
+- **他の PR が既に測った数字** — 同じことを測り直さずに済む。
+  他ループの測定は自分のトレース 1 本より広い範囲を見ていることが多い。
+
+自分が拾おうとしている issue が、未マージの PR で解消・無意味化しないかも確かめる。
+実際、issue #17（鬼がブーストを使っていない）は PR #19（鬼のダッシュ消費 52 → 34）が
+入ると前提が崩れるので、着手を見送った。
+
+`EnterWorktree` でこの作業用の worktree を切る（`fix-seeker-*` など）。
+
+### 1. 現状を知る
+
+**手元で勝率を測らない**（CLAUDE.md「勝率は CI が測る」）。基準値は直近マージされた
+PR に CI が貼った表にある。
+
+```bash
+gh pr list --state merged --limit 3     # 直近のマージ済み PR
+gh pr view <n> --comments               # 「勝率（逃げる側）」の表を読む
 ```
 
 表示は逃げ側の勝率なので、**鬼の勝率はその裏**（100% − 逃げ側勝率）。
-`初補足まで` の秒数が、鬼の探索効率を最も素直に表す。ここが縮めば探索が改善している。
+`初補足` の秒数が、鬼の探索効率を最も素直に表す。ここが縮めば探索が改善している。
 
-3 構成すべてを見る。**24 試合では判断できない。** 同じコードでも 3v3 は 24 試合と
-80 試合で 20 ポイント以上ずれた実績がある。
+3 構成すべてを見る。**少ない試合数では判断できない。** 同じコードでも 3v3 は
+24 試合と 80 試合で 20 ポイント以上ずれた実績がある。CI は 1 構成あたり
+4 seed × 25 試合を master と同じ seed 列で走らせるので、その差分で判断する。
+
+手元では疎通と、値の当たり付けだけを行う。
 
 ```bash
-npx tsx src/sim/_ab.ts 1 1 100   # 採否の判断はこれ（100 試合 × 3 シード）
-npx tsx src/sim/_sweep.ts sweep 1 1 80 chaseLeadTime 0,0.6,1.2,2 1234   # 当たりを付ける
+npm run sim -- --games 6 --hiders 2 --seekers 2                              # 疎通
+npx tsx src/sim/_sweep.ts sweep 1 1 20 chaseLeadTime 0,0.6,1.2,2 1234        # 当たりを付ける
 ```
 
-`_sweep.ts` で値の当たりを付け、`_ab.ts` で採否を決める、という順で使う。
+`_sweep.ts` で当たりを付け、**採否は draft PR を出して CI の差分で決める**
+（`_ab.ts` を手元で回さない。100 試合 × 3 シードは 30 分以上 CPU を占有する）。
 
 単発の勝率差より、**3 構成が揃って同じ向きに動いていること**の方が強い証拠になる。
 1 構成だけ大きく動いて他が逆向きなら、それはたいていノイズ。
@@ -91,10 +117,24 @@ npm run trace -- --hiders 2 --seekers 2 --find-win --interval 5
   採用してしまう（実際に 2v2 単独で最適化して勝率 100% になり、別シードでは 67% だったことがある）。
 - **原因が絞れていない** → 直さずに `src/sim/_probe.ts` を書く。仮説を数値で確かめてから直す。
 
-### 4. 再測定する
+### 4. 手元で確かめて、測定は CI に出す
 
-手順 1 と同じコマンドを回し、狙った構成で鬼の勝率が上がり、**他の構成が悪化していないこと**を
-確認する。悪化していたら戻す。tune の結果を採用したなら `--seed` を変えて汎化を確かめる。
+```bash
+npm run sim -- --games 6 --hiders 2 --seekers 2                  # 落ちないこと
+npm run trace -- --hiders 2 --seekers 2 --find-win --interval 5  # 直した挙動が消えたか
+```
+
+6 試合の勝率は当てにならない。ここでは**手順 2 で見つけた「おかしさ」がトレースから
+消えたか**で判断する。採否は draft PR を出して CI にやらせる。
+
+```bash
+git push -u origin <ブランチ名> && gh pr create --draft --fill
+gh pr checks --watch && gh pr view --comments
+```
+
+狙った構成で鬼の勝率が上がり（逃げ側の差分が負）、**他の構成が悪化していないこと**を
+確認する。悪化していたら直して push する（同じコメントが更新される）。
+CI は 4 seed で測るので、シードで符号が反転する変更もここで落とせる。
 
 **ゲームバランスは考えない。** 逃げ側の勝率が下がっても、それはこのサイクルの
 判断材料ではない。鬼が強くなったなら、それは目的どおり。全体の釣り合いは
@@ -113,12 +153,14 @@ npm run trace -- --hiders 2 --seekers 2 --find-win --interval 5
 ```bash
 git fetch origin && git merge origin/master   # 衝突はここで解決する
 npm run build
-git push -u origin <ブランチ名>
-gh pr create --title "..." --body "..."
+git push -u origin <ブランチ名>               # 手順 4 で draft を出していれば push だけでよい
+gh pr ready                                   # 差分が良ければ draft を外す
+gh pr checks --watch && gh pr view --comments # マージ直前の値を確認する
 ```
 
-衝突を解決したら**勝率を測り直す**。本文には何を直したか・トレースで観測した事実・
-勝率の前後（1v1 / 2v2 / 3v3）を書く。マージは `/review-prs` が行う。
+衝突を解決したら push し直して**測り直させる**。本文には何を直したか・
+トレースで観測した事実・CI が出した勝率の差分（1v1 / 2v2 / 3v3）を書く。
+マージは `/review-prs` が行う。
 最後に `ExitWorktree` で抜ける。
 
 ## ルールの限界に当たったら

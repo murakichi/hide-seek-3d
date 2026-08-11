@@ -13,6 +13,12 @@ export interface SeekerParams {
   chaseLeadTime: number;
   /** 直近目撃をどれだけ信用し続けるか（秒） */
   memoryTrust: number;
+  /**
+   * 1 つの目撃情報へ向かう鬼の上限人数（近い順）。
+   * 記憶はチーム共有なので、制限しないと全員が同じ 1 点へ向かって団子になる。
+   * あぶれた鬼は巡回へ回り、別の場所を見る。
+   */
+  leadMaxSeekers: number;
   /** 巡回目標を選ぶときの「距離」ペナルティ係数 */
   patrolDistWeight: number;
   /** ロックされた箱の周辺を怪しむ強さ */
@@ -63,6 +69,7 @@ const BASE_PARAMS: AiParams = {
     chaseDashDist: 14,
     chaseLeadTime: 0.6,
     memoryTrust: 6,
+    leadMaxSeekers: 1,
     patrolDistWeight: 0.55,
     lockedBoxLure: 8,
     repathInterval: 0.4,
