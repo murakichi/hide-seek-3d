@@ -47,6 +47,8 @@ export interface HiderParams {
   fleeSamples: number;
   /** 逃走先スコア：鬼からの距離の重み */
   fleeDistWeight: number;
+  /** 逃走先スコア：補給パックへ近づくことの重み（ブースト中はダッシュし放題になる） */
+  fleePackWeight: number;
   /** 逃走先スコア：鬼から見えない場所のボーナス */
   fleeCoverBonus: number;
   /** 逃走先スコア：直前に選んだ方向から向きを変えることの代償（1 ラジアンあたり） */
@@ -89,6 +91,7 @@ const BASE_PARAMS: AiParams = {
     fleeSamples: 24,
     fleeDistWeight: 1,
     fleeCoverBonus: 14,
+    fleePackWeight: 3.5,
     fleeTurnCost: 30,
     fleeClimbCost: 20,
     retreatMargin: 3,
