@@ -180,7 +180,13 @@ export class HiderBrain {
         }
         const slot = this.slotPos(ctx, shelter, this.job.slot);
         if (Math.hypot(box.x - slot.x, box.z - slot.z) < 0.8) {
-          this.job = { kind: 'lock', box: box.id, until: s.time + 4 };
+          // 置けたら固める。ロックしない設定なら、置いただけで次の仕事へ移る
+          // （壁としては立つが、鬼に押しのけられるし、鬼を呼ぶ標識にもならない）。
+          this.job =
+            ctx.params.hider.lockShelter > 0.5
+              ? { kind: 'lock', box: box.id, until: s.time + 4 }
+              : { kind: 'idle' };
+          if (this.job.kind === 'idle') this.rethink.force();
           return false;
         }
         act.grab = true;
@@ -239,12 +245,20 @@ export class HiderBrain {
 
     // 拠点の外周にもともと在る箱は、運ぶ必要が無いのでその場で固める。
     // 運搬が準備時間の大半を食うので、これが一番安く壁を増やせる。
-    const ring = ctx.params.hider.shelterRadius + 1.6;
-    for (const o of s.obstacles) {
-      if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
-      if ((this.avoid.get(o.id) ?? 0) > s.time) continue;
-      if (Math.hypot(o.x - shelter.x, o.z - shelter.z) > ring) continue;
-      return { kind: 'lock', box: o.id, until: s.time + 8 };
+    //
+    // ただしロックは鬼を呼ぶ。`seeker.ts` の `pickPatrolGoal` は
+    // ロック箱の 5m 以内を最大 `lockedBoxLure`(8) 点も加点するので、
+    // 拠点の外周を固めるほど「ここに居ます」と宣伝することになる
+    // （実測でロック箱の 84.5% が拠点から 6m 以内、鬼は追跡時間の 36.3% を
+    // ロック箱の 5m 以内で過ごしていた）。
+    if (ctx.params.hider.lockShelter > 0.5) {
+      const ring = ctx.params.hider.shelterRadius + 1.6;
+      for (const o of s.obstacles) {
+        if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
+        if ((this.avoid.get(o.id) ?? 0) > s.time) continue;
+        if (Math.hypot(o.x - shelter.x, o.z - shelter.z) > ring) continue;
+        return { kind: 'lock', box: o.id, until: s.time + 8 };
+      }
     }
 
     const openSlots: Array<{ i: number; x: number; z: number; inward: number }> = [];
@@ -280,7 +294,37 @@ export class HiderBrain {
       }
     }
 
-    return bestJob;
+    if (bestJob) return bestJob;
+
+    // 運ぶ仕事が無くなったら、拠点から離れた箱をロックして囮にする。
+    //
+    // 鬼の巡回先の採点はロック箱の 5m 以内を最大 8 点も加点する。
+    // 拠点の外周だけを固めると、その加点が全部こちらを指す標識になる。
+    // ロックそのものは有益（固めないと鬼に押しのけられる。実測で
+    // ロックをやめると 1v1 −2.0 / 2v2 −4.0 pt）なので、消すのではなく
+    // **離れた場所にも撒いて薄める**。
+    //
+    // 準備フェーズの後半は置き場所が埋まって `idle` で捨てられている時間なので、
+    // その余りを使う。ただし戻る時間が要るので、残り時間が十分あるときだけ拾う。
+    const p = ctx.params.hider;
+    if (p.decoyLockDist <= 0 || s.phaseTime < p.decoyLockMargin) return null;
+
+    let decoy: Obstacle | null = null;
+    let bestDist = Infinity;
+    for (const o of s.obstacles) {
+      if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
+      if ((this.avoid.get(o.id) ?? 0) > s.time) continue;
+      // 拠点から十分離れていること。近いと囮にならず、拠点の標識を濃くするだけ。
+      if (Math.hypot(o.x - shelter.x, o.z - shelter.z) < p.decoyLockDist) continue;
+      const d = Math.hypot(o.x - agent.x, o.z - agent.z);
+      // 往復できる範囲に限る。遠出して追跡開始に拠点へ戻れないのが一番まずい。
+      if (d > p.decoyLockDist * 1.6) continue;
+      if (d < bestDist) {
+        bestDist = d;
+        decoy = o;
+      }
+    }
+    return decoy ? { kind: 'lock', box: decoy.id, until: s.time + 8 } : null;
   }
 
   private releaseJob(): void {
