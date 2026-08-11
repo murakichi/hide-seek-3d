@@ -11,10 +11,10 @@ import {
   GRAB_RANGE,
   HIDER_SPEED,
   STAMINA_MAX,
-} from "../core/config";
-import { angleDiff, hasLineOfSight } from "../core/physics";
-import type { Action, Agent, Obstacle } from "../core/types";
-import { canSee } from "../core/vision";
+} from '../core/config';
+import { angleDiff, hasLineOfSight } from '../core/physics';
+import type { Action, Agent, Obstacle } from '../core/types';
+import { canSee } from '../core/vision';
 import {
   clampToArena,
   directIfClear,
@@ -25,13 +25,13 @@ import {
   shouldJump,
   Ticker,
   type AiContext,
-} from "./context";
+} from './context';
 
 type Job =
-  | { kind: "idle" }
-  | { kind: "fetch"; box: number; slot: number }
-  | { kind: "haul"; box: number; slot: number }
-  | { kind: "lock"; box: number; until: number };
+  | { kind: 'idle' }
+  | { kind: 'fetch'; box: number; slot: number }
+  | { kind: 'haul'; box: number; slot: number }
+  | { kind: 'lock'; box: number; until: number };
 
 const SLOT_COUNT = 8;
 /** これより遠い箱は準備時間内に運びきれないので候補にしない */
@@ -42,20 +42,16 @@ const MAX_HAUL_DIST = 13;
  * 経路探索のグリッドは登れる箱も塞がれた扱いにするので、
  * 逃走方向を選ぶときだけはここで見分ける。壁と大きい箱は乗り越えられない。
  */
-function climbableAt(
-  obstacles: readonly Obstacle[],
-  x: number,
-  z: number,
-): boolean {
+function climbableAt(obstacles: readonly Obstacle[], x: number, z: number): boolean {
   let found = false;
   for (const o of obstacles) {
-    if (o.kind === "ramp" || o.kind === "pad") continue;
+    if (o.kind === 'ramp' || o.kind === 'pad') continue;
     if (Math.abs(x - o.x) > o.hw + AGENT_RADIUS * 0.9) continue;
     if (Math.abs(z - o.z) > o.hd + AGENT_RADIUS * 0.9) continue;
     // 1 つでも乗り越えられないものが重なっていたら通れない。
     // 箱は積めるので、見るのは高さ `h` ではなく上面 `y + h`。
     // 積んだ 2 段（上面 2.6）は地面からは登れない。
-    if (o.kind === "wall" || o.y + o.h > CLIMB_REACH) return false;
+    if (o.kind === 'wall' || o.y + o.h > CLIMB_REACH) return false;
     found = true;
   }
   return found;
@@ -63,7 +59,7 @@ function climbableAt(
 
 export class HiderBrain {
   private path: Array<{ x: number; z: number }> = [];
-  private job: Job = { kind: "idle" };
+  private job: Job = { kind: 'idle' };
   private repath: Ticker;
   private rethink: Ticker;
   private stuckTimer = 0;
@@ -86,22 +82,19 @@ export class HiderBrain {
   }
 
   act(ctx: AiContext, agent: Agent): Action {
-    return ctx.game.state.phase === "prep"
-      ? this.prepare(ctx, agent)
-      : this.evade(ctx, agent);
+    return ctx.game.state.phase === 'prep' ? this.prepare(ctx, agent) : this.evade(ctx, agent);
   }
 
   /** このエージェントに割り当てられた拠点。 */
   private home(ctx: AiContext, agent: Agent): { x: number; z: number } | null {
-    return ctx.coop.hider.posOf(agent.id, "shelter");
+    return ctx.coop.hider.posOf(agent.id, 'shelter');
   }
 
   /** デバッグ表示用の内部状態。 */
   describe(): string {
     const j = this.job;
-    const detail =
-      j.kind === "fetch" || j.kind === "haul" ? `${j.box}->${j.slot}` : "";
-    return `${j.kind}${detail ? `(${detail})` : ""} path=${this.path.length}`;
+    const detail = j.kind === 'fetch' || j.kind === 'haul' ? `${j.box}->${j.slot}` : '';
+    return `${j.kind}${detail ? `(${detail})` : ''} path=${this.path.length}`;
   }
 
   // ---- 準備フェーズ -----------------------------------------------------
@@ -137,7 +130,7 @@ export class HiderBrain {
     const s = ctx.game.state;
 
     switch (this.job.kind) {
-      case "idle": {
+      case 'idle': {
         // 思考の間引きはするが、遷移直後（pass > 0）は即座に次の仕事を探す。
         if (this.rethink.ready() || pass > 0) {
           const next = this.planJob(ctx, agent, shelter);
@@ -150,17 +143,14 @@ export class HiderBrain {
         return true;
       }
 
-      case "fetch": {
+      case 'fetch': {
         const box = s.obstacles[this.job.box];
-        if (
-          box.lockedBy !== null ||
-          (box.heldBy >= 0 && box.heldBy !== agent.id)
-        ) {
+        if (box.lockedBy !== null || (box.heldBy >= 0 && box.heldBy !== agent.id)) {
           this.releaseJob();
           return false;
         }
         if (agent.grabbed === box.id) {
-          this.job = { kind: "haul", box: box.id, slot: this.job.slot };
+          this.job = { kind: 'haul', box: box.id, slot: this.job.slot };
           // 運搬の進捗判定を、掴んだ時点の箱の位置から始める。
           this.lastBoxX = box.x;
           this.lastBoxZ = box.z;
@@ -174,9 +164,7 @@ export class HiderBrain {
         act.aimX = box.x - agent.x;
         act.aimZ = box.z - agent.z;
         const reach =
-          Math.hypot(box.x - agent.x, box.z - agent.z) -
-          Math.max(box.hw, box.hd) -
-          AGENT_RADIUS;
+          Math.hypot(box.x - agent.x, box.z - agent.z) - Math.max(box.hw, box.hd) - AGENT_RADIUS;
         act.grab = reach < GRAB_RANGE;
 
         // いつまでも掴めないなら、その箱をしばらく諦める。
@@ -184,7 +172,7 @@ export class HiderBrain {
         return true;
       }
 
-      case "haul": {
+      case 'haul': {
         const box = s.obstacles[this.job.box];
         if (agent.grabbed !== box.id) {
           this.releaseJob();
@@ -192,19 +180,12 @@ export class HiderBrain {
         }
         const slot = this.slotPos(ctx, shelter, this.job.slot);
         if (Math.hypot(box.x - slot.x, box.z - slot.z) < 0.8) {
-          this.job = { kind: "lock", box: box.id, until: s.time + 4 };
+          this.job = { kind: 'lock', box: box.id, until: s.time + 4 };
           return false;
         }
         act.grab = true;
         // 箱がスロットに載るようなエージェント位置を目標にする。
-        this.moveTo(
-          ctx,
-          agent,
-          act,
-          slot.x - agent.grabOffX,
-          slot.z - agent.grabOffZ,
-          false,
-        );
+        this.moveTo(ctx, agent, act, slot.x - agent.grabOffX, slot.z - agent.grabOffZ, false);
         act.aimX = box.x - agent.x;
         act.aimZ = box.z - agent.z;
 
@@ -228,7 +209,7 @@ export class HiderBrain {
         return true;
       }
 
-      case "lock": {
+      case 'lock': {
         const box = s.obstacles[this.job.box];
         if (box.lockedBy !== null || s.time > this.job.until) {
           this.releaseJob();
@@ -236,9 +217,7 @@ export class HiderBrain {
         }
         // 運んできた直後とは限らないので、届いていなければまず寄る。
         const reach =
-          Math.hypot(box.x - agent.x, box.z - agent.z) -
-          Math.max(box.hw, box.hd) -
-          AGENT_RADIUS;
+          Math.hypot(box.x - agent.x, box.z - agent.z) - Math.max(box.hw, box.hd) - AGENT_RADIUS;
         if (reach > GRAB_RANGE * 0.75) {
           const approach = this.approachPoint(ctx, box, agent);
           this.moveTo(ctx, agent, act, approach.x, approach.z, false);
@@ -255,29 +234,20 @@ export class HiderBrain {
    * 次に運ぶ箱と置き場所を決める。
    * 運搬距離が支配的なので、箱とスロットの組み合わせをまとめて評価する。
    */
-  private planJob(
-    ctx: AiContext,
-    agent: Agent,
-    shelter: { x: number; z: number },
-  ): Job | null {
+  private planJob(ctx: AiContext, agent: Agent, shelter: { x: number; z: number }): Job | null {
     const s = ctx.game.state;
 
     // 拠点の外周にもともと在る箱は、運ぶ必要が無いのでその場で固める。
     // 運搬が準備時間の大半を食うので、これが一番安く壁を増やせる。
     const ring = ctx.params.hider.shelterRadius + 1.6;
     for (const o of s.obstacles) {
-      if (o.kind !== "box" || o.lockedBy !== null || o.heldBy >= 0) continue;
+      if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
       if ((this.avoid.get(o.id) ?? 0) > s.time) continue;
       if (Math.hypot(o.x - shelter.x, o.z - shelter.z) > ring) continue;
-      return { kind: "lock", box: o.id, until: s.time + 8 };
+      return { kind: 'lock', box: o.id, until: s.time + 8 };
     }
 
-    const openSlots: Array<{
-      i: number;
-      x: number;
-      z: number;
-      inward: number;
-    }> = [];
+    const openSlots: Array<{ i: number; x: number; z: number; inward: number }> = [];
     const shelterLen = Math.hypot(shelter.x, shelter.z) || 1;
     for (let i = 0; i < SLOT_COUNT; i++) {
       if ((this.avoidSlots.get(i) ?? 0) > s.time) continue;
@@ -285,8 +255,7 @@ export class HiderBrain {
       if (this.slotFilled(ctx, pos)) continue;
       // アリーナ中央を向いている面ほど、鬼の侵入経路になりやすいので優先して塞ぐ。
       const inward =
-        (-shelter.x * (pos.x - shelter.x) + -shelter.z * (pos.z - shelter.z)) /
-        shelterLen;
+        (-shelter.x * (pos.x - shelter.x) + -shelter.z * (pos.z - shelter.z)) / shelterLen;
       openSlots.push({ i, x: pos.x, z: pos.z, inward });
     }
     if (openSlots.length === 0) return null;
@@ -294,7 +263,7 @@ export class HiderBrain {
     let bestJob: Job | null = null;
     let bestCost = Infinity;
     for (const o of s.obstacles) {
-      if (o.kind !== "box" || o.lockedBy !== null || o.heldBy >= 0) continue;
+      if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
       if (o.hw + o.hd > GRAB_MAX_SIZE) continue;
       if ((this.avoid.get(o.id) ?? 0) > s.time) continue;
       const toAgent = Math.hypot(o.x - agent.x, o.z - agent.z);
@@ -306,7 +275,7 @@ export class HiderBrain {
         const cost = haul * 1.6 + toAgent * 0.7 - slot.inward * 1.2;
         if (cost < bestCost) {
           bestCost = cost;
-          bestJob = { kind: "fetch", box: o.id, slot: slot.i };
+          bestJob = { kind: 'fetch', box: o.id, slot: slot.i };
         }
       }
     }
@@ -315,7 +284,7 @@ export class HiderBrain {
   }
 
   private releaseJob(): void {
-    this.job = { kind: "idle" };
+    this.job = { kind: 'idle' };
     this.rethink.force();
   }
 
@@ -343,12 +312,8 @@ export class HiderBrain {
 
   private slotFilled(ctx: AiContext, pos: { x: number; z: number }): boolean {
     for (const o of ctx.game.state.obstacles) {
-      if (o.kind === "ramp") continue;
-      if (
-        Math.abs(pos.x - o.x) < o.hw + 0.35 &&
-        Math.abs(pos.z - o.z) < o.hd + 0.35
-      )
-        return true;
+      if (o.kind === 'ramp') continue;
+      if (Math.abs(pos.x - o.x) < o.hw + 0.35 && Math.abs(pos.z - o.z) < o.hd + 0.35) return true;
     }
     return false;
   }
@@ -357,11 +322,7 @@ export class HiderBrain {
    * 箱に取り付く位置。箱の四辺のうち、自分から見て一番近くて空いている面を選ぶ。
    * どの面から掴んでも運べるので、到達できることだけを条件にする。
    */
-  private approachPoint(
-    ctx: AiContext,
-    box: Obstacle,
-    agent: Agent,
-  ): { x: number; z: number } {
+  private approachPoint(ctx: AiContext, box: Obstacle, agent: Agent): { x: number; z: number } {
     const back = Math.max(box.hw, box.hd) + AGENT_RADIUS + 0.25;
     const sides = [
       { x: box.x + back, z: box.z },
@@ -392,9 +353,7 @@ export class HiderBrain {
     const p = ctx.params.hider;
     const threats = this.knownThreats(ctx, agent);
     const nearest = threats.length
-      ? Math.min(
-          ...threats.map((t) => Math.hypot(t.x - agent.x, t.z - agent.z)),
-        )
+      ? Math.min(...threats.map((t) => Math.hypot(t.x - agent.x, t.z - agent.z)))
       : Infinity;
 
     if (nearest < p.fleeTriggerDist) {
@@ -409,14 +368,11 @@ export class HiderBrain {
       const speed = Math.hypot(agent.vx, agent.vz);
       this.stuckTimer = speed < HIDER_SPEED * 0.3 ? this.stuckTimer + DT : 0;
       // 乗り越える向きを選んだなら、詰まるのを待たずに跳ぶ。減速してからでは箱に乗れない。
-      act.jump =
-        shouldJump(ctx, agent, dir.mx, dir.mz, dir.climb) ||
-        this.stuckTimer > 0.4;
+      act.jump = shouldJump(ctx, agent, dir.mx, dir.mz, dir.climb) || this.stuckTimer > 0.4;
 
       // 迫られている間は相手を見て、回り込みに反応できるようにする。
       const closest = threats.reduce((best, t) =>
-        Math.hypot(t.x - agent.x, t.z - agent.z) <
-        Math.hypot(best.x - agent.x, best.z - agent.z)
+        Math.hypot(t.x - agent.x, t.z - agent.z) < Math.hypot(best.x - agent.x, best.z - agent.z)
           ? t
           : best,
       );
@@ -428,7 +384,7 @@ export class HiderBrain {
       // 見られていないのに撒くと、そこに居ることを教えるだけになる。
       if (agent.smokeCharges > 0 && nearest < 8) {
         const watched = s.agents.some(
-          (sk) => sk.team === "seeker" && !sk.caught && canSee(s, sk, agent),
+          (sk) => sk.team === 'seeker' && !sk.caught && canSee(s, sk, agent),
         );
         if (watched) act.smoke = true;
       }
@@ -473,8 +429,7 @@ export class HiderBrain {
       act.jump = shouldJump(ctx, agent, dir.mx, dir.mz, dir.climb);
       // 退いている間も鬼が居た方を見ておく。回り込まれたら逃走に切り替わる。
       const closest = recent.reduce((best, t) =>
-        Math.hypot(t.x - agent.x, t.z - agent.z) <
-        Math.hypot(best.x - agent.x, best.z - agent.z)
+        Math.hypot(t.x - agent.x, t.z - agent.z) < Math.hypot(best.x - agent.x, best.z - agent.z)
           ? t
           : best,
       );
@@ -498,15 +453,12 @@ export class HiderBrain {
    * 直近に鬼が居たと分かっている場所。逃走判定の knownThreats より長く覚えておく。
    * こちらは「動いてよいか」の判断にだけ使うので、古い情報でも害が小さい。
    */
-  private recentThreats(
-    ctx: AiContext,
-    agent: Agent,
-  ): Array<{ x: number; z: number }> {
+  private recentThreats(ctx: AiContext, agent: Agent): Array<{ x: number; z: number }> {
     const s = ctx.game.state;
     const keep = ctx.params.hider.threatMemory;
     const out: Array<{ x: number; z: number }> = [];
     for (const a of s.agents) {
-      if (a.team !== "seeker" || a.caught) continue;
+      if (a.team !== 'seeker' || a.caught) continue;
       if (canSee(s, agent, a)) {
         out.push({ x: a.x, z: a.z });
         continue;
@@ -548,14 +500,11 @@ export class HiderBrain {
   }
 
   /** 見えている鬼＋チームの記憶にある鬼の位置。 */
-  private knownThreats(
-    ctx: AiContext,
-    agent: Agent,
-  ): Array<{ x: number; z: number }> {
+  private knownThreats(ctx: AiContext, agent: Agent): Array<{ x: number; z: number }> {
     const s = ctx.game.state;
     const out: Array<{ x: number; z: number }> = [];
     for (const a of s.agents) {
-      if (a.team !== "seeker") continue;
+      if (a.team !== 'seeker') continue;
       if (canSee(s, agent, a)) {
         out.push({ x: a.x, z: a.z });
         continue;
@@ -577,11 +526,8 @@ export class HiderBrain {
   ): { mx: number; mz: number; climb: boolean } {
     const p = ctx.params.hider;
     const s = ctx.game.state;
-    const seekers = s.agents.filter((a) => a.team === "seeker" && !a.caught);
-    const heading =
-      Math.hypot(agent.vx, agent.vz) > 1
-        ? Math.atan2(agent.vx, agent.vz)
-        : null;
+    const seekers = s.agents.filter((a) => a.team === 'seeker' && !a.caught);
+    const heading = Math.hypot(agent.vx, agent.vz) > 1 ? Math.atan2(agent.vx, agent.vz) : null;
 
     let bestDir = { mx: 0, mz: 0, climb: false };
     let bestAngle = 0;
@@ -604,8 +550,7 @@ export class HiderBrain {
       for (const t of [2, 4, 6, 8.5, 11.5]) {
         const px = agent.x + dx * t;
         const pz = agent.z + dz * t;
-        if (Math.abs(px) > ARENA_HALF - 0.8 || Math.abs(pz) > ARENA_HALF - 0.8)
-          break;
+        if (Math.abs(px) > ARENA_HALF - 0.8 || Math.abs(pz) > ARENA_HALF - 0.8) break;
         if (ctx.nav.isBlockedWorld(px, pz)) {
           // 塞いでいるのが乗り越えられる高さの箱なら、そこは通れる。
           // nav は登れる箱も一律で塞がれた扱いにするので、この判定が無いと
@@ -644,26 +589,19 @@ export class HiderBrain {
       }
 
       // 壁や隅に貼り付くと逃げ場が無くなる。
-      const wallGap = Math.min(
-        ARENA_HALF - Math.abs(px),
-        ARENA_HALF - Math.abs(pz),
-      );
+      const wallGap = Math.min(ARENA_HALF - Math.abs(px), ARENA_HALF - Math.abs(pz));
       if (wallGap < 6) score -= (6 - wallGap) * 4;
 
       // 味方と同じ方向へ逃げない。固まると鬼にまとめて見つかり、
       // 1 人でも残れば勝ちというルールの利点を自分から捨てることになる。
       for (const mate of s.agents) {
-        if (mate.team !== "hider" || mate.id === agent.id || mate.caught)
-          continue;
+        if (mate.team !== 'hider' || mate.id === agent.id || mate.caught) continue;
         const gap = Math.hypot(mate.x - px, mate.z - pz);
         if (gap < 7) score -= (7 - gap) * 3;
       }
 
       // 全員の視線が切れる方向なら大きく加点。
-      if (
-        seekers.length > 0 &&
-        seekers.every((sk) => isCovered(s.obstacles, sk, px, pz))
-      ) {
+      if (seekers.length > 0 && seekers.every((sk) => isCovered(s.obstacles, sk, px, pz))) {
         score += p.fleeCoverBonus;
       }
 
@@ -681,26 +619,14 @@ export class HiderBrain {
         score -= Math.abs(angleDiff(ang, this.fleeAngle)) * p.fleeTurnCost;
       }
 
-      // 逃げる先に補給パックがあるコースを選ぶ。
-      //
-      // 以前は「スタミナが半分を切ったら」という条件が付いていた。だが
-      // パックの本体はスタミナの回復ではなく**ブースト**で、ブースト中の
-      // ダッシュ消費は `DASH_COST * BOOST_DASH_COST` = 34 * 0.45 = 15.3/秒。
-      // 回復は 19/秒なので、**ブースト中の 6 秒間はダッシュし放題**になる。
-      // これは残量に関係なく効くので、スタミナで門を閉める理由が無い。
-      // 実測でも逃げる側が取れているのは 1.97 個/試合に対し鬼は 3.77 個/試合で、
-      // ブーストが効いていたのは逃走ティックの 15.0% しかなかった（2v2）。
-      // 盤上には平均 2.7 個余っているので、供給ではなく取りに行かないのが理由。
-      // 門は残すが、しきい値を上げて「ほぼ満タンでなければ取りに行く」にする。
-      // 完全に外すと 2v2 が落ちた（CI で -4.0 pt）。パックは開けた場所に湧くので、
-      // いつでも寄り道すると被発見が増えるらしい。
-      if (agent.stamina < STAMINA_MAX * p.fleePackStamina) {
+      // 息が上がってきたら、逃げる先に補給パックがあるコースを選ぶ。
+      if (agent.stamina < STAMINA_MAX * 0.5) {
         for (const pack of s.pickups) {
           if (!pack.active) continue;
           const before = Math.hypot(pack.x - agent.x, pack.z - agent.z);
           if (before > 12) continue;
           const after = Math.hypot(pack.x - px, pack.z - pz);
-          if (after < before) score += (before - after) * p.fleePackWeight;
+          if (after < before) score += (before - after) * 3.5;
         }
       }
 
@@ -760,8 +686,7 @@ export class HiderBrain {
     // しきい値は基本速度に対する割合。固定値にすると、速度を上げたときに
     // 「壁沿いにジリジリ滑っている」状態が「動いている」と判定されてしまう。
     const speed = Math.hypot(agent.vx, agent.vz);
-    this.stuckTimer =
-      remaining > 1 && speed < HIDER_SPEED * 0.3 ? this.stuckTimer + DT : 0;
+    this.stuckTimer = remaining > 1 && speed < HIDER_SPEED * 0.3 ? this.stuckTimer + DT : 0;
     if (this.stuckTimer > 0.6) act.jump = true;
 
     return act;
@@ -772,10 +697,7 @@ export class HiderBrain {
  * 拠点候補を良い順に選ぶ。壁に守られていて、箱が近くにあり、中央から遠い場所ほど高評価。
  * 逃げる側が複数いる場合は互いに離れた場所を返す。1 箇所に固まると全滅するため。
  */
-export function chooseShelters(
-  ctx: AiContext,
-  count: number,
-): Array<{ x: number; z: number }> {
+export function chooseShelters(ctx: AiContext, count: number): Array<{ x: number; z: number }> {
   const s = ctx.game.state;
   const nav = ctx.nav;
   const scored: Array<{ x: number; z: number; score: number }> = [];
@@ -789,15 +711,7 @@ export function chooseShelters(
       if (fromCenter < 10) continue;
 
       // 鬼が放たれる中央から直接見通せる場所は、開幕で即バレするので避ける。
-      const hiddenFromSpawn = !hasLineOfSight(
-        s.obstacles,
-        0,
-        EYE_HEIGHT,
-        0,
-        x,
-        1,
-        z,
-      );
+      const hiddenFromSpawn = !hasLineOfSight(s.obstacles, 0, EYE_HEIGHT, 0, x, 1, z);
 
       // 周囲がどれだけ遮蔽物に囲まれているか（8 方向のレイが短いほど良い）。
       let cover = 0;
@@ -805,8 +719,7 @@ export function chooseShelters(
         const a = (k / 8) * Math.PI * 2;
         let t = 0.75;
         for (; t < 7; t += 0.75) {
-          if (nav.isBlockedWorld(x + Math.sin(a) * t, z + Math.cos(a) * t))
-            break;
+          if (nav.isBlockedWorld(x + Math.sin(a) * t, z + Math.cos(a) * t)) break;
         }
         cover += Math.max(0, 7 - t);
       }
@@ -814,7 +727,7 @@ export function chooseShelters(
       // 運べる箱が近くにあるか。運搬距離が準備時間を食い潰すので、ここが最も効く。
       let boxes = 0;
       for (const o of s.obstacles) {
-        if (o.kind !== "box" || o.lockedBy !== null) continue;
+        if (o.kind !== 'box' || o.lockedBy !== null) continue;
         if (o.hw + o.hd > GRAB_MAX_SIZE) continue;
         const d = Math.hypot(o.x - x, o.z - z);
         if (d < MAX_HAUL_DIST) boxes += 1 - d / MAX_HAUL_DIST;
@@ -822,18 +735,11 @@ export function chooseShelters(
 
       // 隅や壁際は「中央から遠い」ので高く評価されがちだが、
       // 見つかった瞬間に逃げ道が片側しか無くなるため実際には最悪の隠れ場所になる。
-      const wallGap = Math.min(
-        ARENA_HALF - Math.abs(x),
-        ARENA_HALF - Math.abs(z),
-      );
+      const wallGap = Math.min(ARENA_HALF - Math.abs(x), ARENA_HALF - Math.abs(z));
       const cornered = wallGap < 6 ? (6 - wallGap) * 9 : 0;
 
       const score =
-        cover * 1.4 +
-        boxes * 16 +
-        fromCenter * 0.3 +
-        (hiddenFromSpawn ? 25 : 0) -
-        cornered;
+        cover * 1.4 + boxes * 16 + fromCenter * 0.3 + (hiddenFromSpawn ? 25 : 0) - cornered;
       scored.push({ x, z, score });
     }
   }
