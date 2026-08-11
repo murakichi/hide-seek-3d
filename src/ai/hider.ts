@@ -598,7 +598,9 @@ export class HiderBrain {
         // こちらは合算のままにする。挟まれているコースは実際に人数ぶん危ない。
         if (after < 3.5) score -= 60;
       }
-      score += awayScore / threats.length;
+      // 完全な平均（/ n）だと 2v2 が落ちたので、√人数で割る中間にしてある。
+      // 追ってくる人数が増えれば逃げたい強さも増すが、比例ではない。
+      score += awayScore / Math.sqrt(threats.length);
 
       // 壁や隅に貼り付くと逃げ場が無くなる。
       const wallGap = Math.min(ARENA_HALF - Math.abs(px), ARENA_HALF - Math.abs(pz));
