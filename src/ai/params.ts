@@ -32,6 +32,8 @@ export interface SeekerParams {
 }
 
 export interface HiderParams {
+  /** 拠点の箱をロックするか（1 で固める / 0 で置くだけ。ロックは鬼を呼ぶ） */
+  lockShelter: number;
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -77,6 +79,7 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
+    lockShelter: 0,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,
