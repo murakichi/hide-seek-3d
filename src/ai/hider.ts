@@ -4,12 +4,15 @@
 import {
   AGENT_RADIUS,
   ARENA_HALF,
+  CATCH_VERTICAL,
   CLIMB_REACH,
   DT,
   EYE_HEIGHT,
   GRAB_MAX_SIZE,
   GRAB_RANGE,
+  GRAVITY,
   HIDER_SPEED,
+  PAD_JUMP_SPEED,
   STAMINA_MAX,
 } from '../core/config';
 import { angleDiff, hasLineOfSight } from '../core/physics';
@@ -32,6 +35,9 @@ type Job =
   | { kind: 'fetch'; box: number; slot: number }
   | { kind: 'haul'; box: number; slot: number }
   | { kind: 'lock'; box: number; until: number };
+
+/** ジャンプ台で打ち上げられる高さ。PAD_JUMP_SPEED^2 / (2 * GRAVITY) = 3.0 */
+const PAD_JUMP_REACH = (PAD_JUMP_SPEED * PAD_JUMP_SPEED) / (2 * GRAVITY);
 
 const SLOT_COUNT = 8;
 /** これより遠い箱は準備時間内に運びきれないので候補にしない */
@@ -104,6 +110,19 @@ export class HiderBrain {
     const p = ctx.params.hider;
     const shelter = this.home(ctx, agent);
     if (!shelter) return act;
+
+    // 残り時間が減ってきたら、荷物を捨てて高台へ登る。
+    //
+    // 鬼が追ってこられない高台（隙間を挟んだ、踏み台の無い足場）に乗れれば、
+    // 上面が CATCH_VERTICAL(1.6) を超えている間は地上から捕獲判定が成立しない。
+    // 追跡が始まってから登りに行くのは、移動の間に逃走の采配を捨てるので割に合わない
+    // （CI で 1v1 -18、門を付けても -11）。**準備フェーズなら鬼は檻の中なので移動が
+    // 無料**で、そこが唯一の弱点だった。
+    if (ctx.game.state.phaseTime < p.perchPrepMargin) {
+      this.releaseJob();
+      if (this.hopToPerch(ctx, agent, act)) return act;
+      if (this.holdHighGround(ctx, agent, act, Infinity)) return act;
+    }
 
     // 残り時間がわずかなら、荷物を捨てて拠点の内側に入る。
     if (ctx.game.state.phaseTime < p.retreatMargin) {
@@ -400,6 +419,27 @@ export class HiderBrain {
       ? Math.min(...threats.map((t) => Math.hypot(t.x - agent.x, t.z - agent.z)))
       : Infinity;
 
+    // 隙間を挟んだ高台へ跳び移る。
+    //
+    // 鬼は水平の跳び移りができない。`seeker.ts` の `climbTarget` は
+    // 「今の高さから乗れる面」を踏み台として選ぶだけで垂直の段差しか見ておらず、
+    // `shouldJump` は進行方向の足元が塞がっているときにしか跳ばない。
+    // 隙間の上には障害物が無いので `isBlockedWorld` が偽になり、鬼は跳ばない。
+    // 経路探索のグリッドでも隙間は通れないので、回り込む道も見つからない。
+    //
+    // 上面が CATCH_VERTICAL(1.6) を超えていれば地上の鬼からは捕獲判定が成立しないので、
+    // 「隙間の向こうの高台」に乗れれば追ってこられない。
+    // 高所の攻略はこれまで 4 回失敗しているが、失敗の理由はどれも
+    // 「鬼も同じ踏み台で登ってくる」ことだった。隙間を挟むとその前提が崩れる。
+    // ただし追いつかれかけているときは跳びに行かない。
+    // 逃走より前に置いたら 1v1 が -18 pt 落ちた（CI）。高台へ走る間は
+    // 一直線に動くので、間合いが詰まっている場面では的になる。
+    // 追跡が始まってからの跳び移りは、移動の間に逃走の采配を捨てるので割に合わない
+    // （CI で 1v1 -18 / 門を付けても -11）。**準備フェーズのうちに乗っておく**方に変えた。
+
+    // 足場の上に居て、まだ誰も同じ高さに来ていないなら降りない。
+    if (this.holdHighGround(ctx, agent, act, nearest)) return act;
+
     if (nearest < p.fleeTriggerDist) {
       // 逃走中は目標地点を決め打ちしない。地点を目指すと壁際で詰まったり、
       // 目標更新の間に距離を詰められる。毎ティック方向を選び直す方が粘れる。
@@ -541,6 +581,151 @@ export class HiderBrain {
       }
     }
     return false;
+  }
+
+  /**
+   * 隙間を挟んだ高台へ跳び移る。跳びに行くと決めたら act を埋めて true を返す。
+   *
+   * 条件は 3 つ。
+   *   - 上面が CATCH_VERTICAL を超える（乗れば地上の鬼から捕獲されない）
+   *   - 今の足元から垂直に CLIMB_REACH 以内（跳んで乗れる高さ）
+   *   - **その高台の近くに、地上から登れる踏み台が無い**（鬼が普通に登れてしまう場所は無意味）
+   */
+  private hopToPerch(ctx: AiContext, agent: Agent, act: Action): boolean {
+    const p = ctx.params.hider;
+    if (p.gapHopReach <= 0) return false;
+    // 既に「鬼が来られない高台」に居るなら跳ぶ必要は無い。
+    if (agent.y > CATCH_VERTICAL && this.perchIsIsolated(ctx, agent.x, agent.z, agent.y)) {
+      return false;
+    }
+
+    const s = ctx.game.state;
+    let best: Obstacle | null = null;
+    let bestGap = Infinity;
+    for (const o of s.obstacles) {
+      if (o.kind === 'wall' || o.kind === 'pad' || o.kind === 'ramp') continue;
+      const top = o.y + o.h;
+      if (top <= CATCH_VERTICAL) continue;
+      if (top > agent.y + CLIMB_REACH) continue; // 跳んでも届かない
+      if (top <= agent.y + 0.2) continue; // 今より高くない
+      const gap = Math.hypot(o.x - agent.x, o.z - agent.z) - Math.max(o.hw, o.hd) - AGENT_RADIUS;
+      if (gap > p.gapHopReach) continue;
+      if (!this.perchIsIsolated(ctx, o.x, o.z, top)) continue; // 鬼が登ってこられる
+      if (gap < bestGap) {
+        bestGap = gap;
+        best = o;
+      }
+    }
+    // 直接跳べる高台が無いときは、ジャンプ台を起点にする。
+    // ジャンプ台は `PAD_JUMP_SPEED`(12.5) で打ち上げるので到達高は 3.0m あり、
+    // 地上からは登れない大箱（上面 2.2）へも乗れる。
+    // ユーザーが実戦で使った「ジャンプ台 → 高台 → 高台」の 1 段目がこれ。
+    let via: { x: number; z: number } | null = null;
+    if (!best) {
+      for (const pad of s.obstacles) {
+        if (pad.kind !== 'pad') continue;
+        const toPad = Math.hypot(pad.x - agent.x, pad.z - agent.z);
+        if (toPad > p.padApproach) continue;
+        // その台の打ち上げで届く範囲に、鬼が登れない高台があるか。
+        for (const o of s.obstacles) {
+          if (o.kind === 'wall' || o.kind === 'pad' || o.kind === 'ramp') continue;
+          const top = o.y + o.h;
+          if (top <= CATCH_VERTICAL || top > PAD_JUMP_REACH) continue;
+          const spread =
+            Math.hypot(o.x - pad.x, o.z - pad.z) - Math.max(o.hw, o.hd) - AGENT_RADIUS;
+          if (spread > p.gapHopReach) continue;
+          if (!this.perchIsIsolated(ctx, o.x, o.z, top)) continue;
+          via = { x: pad.x, z: pad.z };
+          break;
+        }
+        if (via) break;
+      }
+    }
+    if (!best && !via) return false;
+
+    // 助走をつけて跳ぶ。ダッシュで滞空中の水平距離を伸ばす。
+    const target = best ?? via!;
+    const dx = target.x - agent.x;
+    const dz = target.z - agent.z;
+    const d = Math.hypot(dx, dz) || 1;
+    act.moveX = dx / d;
+    act.moveZ = dz / d;
+    act.aimX = dx / d;
+    act.aimZ = dz / d;
+    act.dash = true;
+    // ジャンプ台へ向かうときは自分では跳ばない（台が打ち上げてくれる）。
+    act.jump = agent.grounded && best !== null;
+    this.path = [];
+    this.fleeAngle = null;
+    return true;
+  }
+
+  /**
+   * その高台に「地上から登れる踏み台」が近くに無いか。
+   * 近くにあると鬼が `climbTarget` でそれを選び、普通に登ってくる。
+   */
+  private perchIsIsolated(ctx: AiContext, x: number, z: number, top: number): boolean {
+    for (const q of ctx.game.state.obstacles) {
+      if (q.kind === 'wall') continue;
+      const qtop = q.y + q.h;
+      const fromGround = q.kind === 'pad' ? 3.0 : qtop;
+      // 地上から乗れて、そこから上面へ届くもの
+      if (q.kind !== 'pad' && q.kind !== 'ramp' && qtop > CLIMB_REACH) continue;
+      if (fromGround + CLIMB_REACH < top) continue;
+      const gap = Math.hypot(q.x - x, q.z - z) - Math.max(q.hw, q.hd);
+      if (gap < ctx.params.hider.perchIsolation) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 足場の上に居て、まだ誰も同じ高さまで登ってきていないなら、その場で粘る。
+   * 降りるのは「鬼が捕獲の届く高さまで来たとき」だけ。
+   */
+  private holdHighGround(ctx: AiContext, agent: Agent, act: Action, nearest: number): boolean {
+    if (!agent.grounded || agent.y <= CATCH_VERTICAL) return false;
+    const s = ctx.game.state;
+    const p = ctx.params.hider;
+
+    for (const sk of s.agents) {
+      if (sk.team !== 'seeker' || sk.caught) continue;
+      if (
+        Math.abs(sk.y - agent.y) < CATCH_VERTICAL &&
+        Math.hypot(sk.x - agent.x, sk.z - agent.z) < p.fleeTriggerDist
+      ) {
+        return false;
+      }
+    }
+
+    // 端に立っていると押されて落ちるので、足場の中央へ寄せる。
+    for (const o of s.obstacles) {
+      if (o.kind === 'pad') continue;
+      if (Math.abs(o.y + o.h - agent.y) > 0.25) continue;
+      if (Math.abs(agent.x - o.x) > o.hw + AGENT_RADIUS) continue;
+      if (Math.abs(agent.z - o.z) > o.hd + AGENT_RADIUS) continue;
+      const dx = o.x - agent.x;
+      const dz = o.z - agent.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 0.35) {
+        act.moveX = dx / d;
+        act.moveZ = dz / d;
+      }
+      break;
+    }
+
+    this.wanderAngle += 2.4 / 60;
+    act.aimX = Math.sin(this.wanderAngle);
+    act.aimZ = Math.cos(this.wanderAngle);
+    this.path = [];
+    this.fleeAngle = null;
+
+    if (agent.smokeCharges > 0 && nearest < 8) {
+      const watched = s.agents.some(
+        (sk) => sk.team === 'seeker' && !sk.caught && canSee(s, sk, agent),
+      );
+      if (watched) act.smoke = true;
+    }
+    return true;
   }
 
   /** 見えている鬼＋チームの記憶にある鬼の位置。 */
