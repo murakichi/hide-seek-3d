@@ -51,6 +51,8 @@ export interface HiderParams {
   gapHopReach: number;
   /** 高台の「孤立」判定：踏み台がこの距離より近くに無ければ鬼は登れない */
   perchIsolation: number;
+  /** 視線が切れている間だけ、この距離までパックを取りに行く（0 で無効） */
+  boostGrabDist: number;
   /** 拠点の箱をロックするか（1 で固める / 0 で置くだけ。ロックは鬼を呼ぶ） */
   lockShelter: number;
   /** 囮としてロックする箱の「拠点からの最短距離」（0 で無効） */
@@ -108,6 +110,7 @@ const BASE_PARAMS: AiParams = {
     padApproach: 12,
     gapHopReach: 4.5,
     perchIsolation: 3,
+    boostGrabDist: 10,
     lockShelter: 1,
     decoyLockDist: 11,
     decoyLockMargin: 10,
