@@ -43,10 +43,27 @@ export interface SeekerParams {
 }
 
 export interface HiderParams {
+<<<<<<< HEAD
   /** パックへ寄り道してよい「最寄りの鬼との距離」の下限 */
   boostGrabSafeDist: number;
   /** 視線が切れている間だけ、この距離までパックを取りに行く（0 で無効） */
   boostGrabDist: number;
+=======
+  /** 準備フェーズの残りがこれを切ったら高台へ登りに行く */
+  perchPrepMargin: number;
+  /** ジャンプ台を起点にするときの、台までの許容距離 */
+  padApproach: number;
+  /** 隙間を挟んで跳び移れる水平距離（0 で無効） */
+  gapHopReach: number;
+  /** 高台の「孤立」判定：踏み台がこの距離より近くに無ければ鬼は登れない */
+  perchIsolation: number;
+  /** 拠点の箱をロックするか（1 で固める / 0 で置くだけ。ロックは鬼を呼ぶ） */
+  lockShelter: number;
+  /** 囮としてロックする箱の「拠点からの最短距離」（0 で無効） */
+  decoyLockDist: number;
+  /** 準備フェーズの残りがこれ以上あるときだけ囮を取りに行く */
+  decoyLockMargin: number;
+>>>>>>> origin/master
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -94,8 +111,18 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
+<<<<<<< HEAD
     boostGrabSafeDist: 9,
     boostGrabDist: 10,
+=======
+    perchPrepMargin: 10,
+    padApproach: 12,
+    gapHopReach: 4.5,
+    perchIsolation: 3,
+    lockShelter: 1,
+    decoyLockDist: 11,
+    decoyLockMargin: 10,
+>>>>>>> origin/master
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,
