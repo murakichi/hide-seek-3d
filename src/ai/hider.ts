@@ -422,7 +422,11 @@ export class HiderBrain {
     // **追われながらの寄り道は被発見と引き換え**になる。
     // 一方「見られていない今」なら、寄り道を見咎める相手が居ない。
     // 追われ直したときの数秒が別物になる。
-    if (recent.length > 0 && p.boostGrabDist > 0) {
+    // 「見られていない」だけでは足りない。鬼が 2 人以上いると、**近くに居るのに
+    // たまたま視線が切れている**瞬間が増える。そこで寄り道すると、
+    // 視線が戻った時点で間合いが詰んでいる。実測でも 1v1 と 3v3 が伸びたのに
+    // 2v2 だけ −6.0 pt 落ちた。最寄りの鬼との距離でも門を掛ける。
+    if (recent.length > 0 && p.boostGrabDist > 0 && nearest > p.boostGrabSafeDist) {
       const seen = s.agents.some(
         (sk) => sk.team === 'seeker' && !sk.caught && canSee(s, sk, agent),
       );
