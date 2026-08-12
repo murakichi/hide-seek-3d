@@ -50,6 +50,9 @@ let haulTicksThroughWall = 0;
 let stalledTicks = 0;
 let stalledThroughWall = 0;
 let prepTicks = 0;
+/** 運搬中に «置き場所に着く前に» 掴みが外れた回数 */
+let grabLost = 0;
+let reachedSlot = 0;
 
 for (let g = 0; g < GAMES; g++) {
   const config: MatchConfig = {
@@ -73,6 +76,13 @@ for (let g = 0; g < GAMES; g++) {
         prepTicks++;
         const cur = held.get(a.id);
         if (a.grabbed < 0) {
+          if (cur) {
+            const b = s.obstacles[cur.box];
+            const home2 = ai.shelterOf(a.id);
+            // 拠点の近くで放したなら «置けた»、そうでなければ «外れた»
+            if (home2 && Math.hypot(b.x - home2.x, b.z - home2.z) < 5) reachedSlot++;
+            else grabLost++;
+          }
           held.delete(a.id);
           continue;
         }
@@ -129,4 +139,5 @@ console.log(`  運搬中のティック: ${haulTicks}   うち壁越し: ${pct(h
 console.log(`  箱が動いていなかったティック: ${pct(stalledTicks, haulTicks)}`);
 console.log(`    壁越しの運搬に限ると: ${pct(stalledThroughWall, haulTicksThroughWall)}`);
 console.log(`    壁を挟まない運搬に限ると: ${pct(stalledTicks - stalledThroughWall, haulTicks - haulTicksThroughWall)}`);
+console.log(`  運搬の終わり方: 拠点に届いた ${reachedSlot} / 途中で外れた ${grabLost} (${pct(grabLost, reachedSlot + grabLost)} が失敗)`);
 console.log(`  準備フェーズに占める運搬の時間: ${pct(haulTicks, prepTicks)}`);
