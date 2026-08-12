@@ -50,7 +50,7 @@ const LEAP_MARGIN = 0.8;
  * 跳べる位置まで近づく前に動けなくなる。**
  * 広げすぎると踏み台が遠いうちから直進して途中の箱に突っかかるので、その手前で止める。
  */
-const CLIMB_APPROACH = 4.5;
+const CLIMB_APPROACH = 7;
 
 /** 諦めた目標を避け続ける秒数。長すぎると盤面の一部を見なくなる */
 const AVOID_TIME = 12;
@@ -149,11 +149,13 @@ export class SeekerBrain {
     const targetX = prey ? prey.x : this.goal.x;
     const targetZ = prey ? prey.z : this.goal.z;
     const targetY = prey ? prey.y : this.groundHeightAt(ctx, this.goal.x, this.goal.z);
-    // **登るのは、そこに居られると触れない高さのときだけ。**
-    // 高さの差だけで判定すると、逃げる側が小箱(1.3)に乗るたびに登ろうとして
-    // 時間を浪費する。小箱の上は `CATCH_VERTICAL`(1.6) の内側なので地上から捕まえられる。
-    // この条件を入れる前は 3v3 で逃げ側の勝率が 10 ポイント上がった（＝鬼が弱くなった）。
-    const climbing = targetY > agent.y + 0.4 && targetY > CATCH_VERTICAL;
+    // **見えているときの判定は従来のまま変えない。**
+    // ここを「地上から触れない高さだけ」に絞ったら 3v3 で逃げ側が 10 ポイント上がった。
+    // 小箱(1.3)の上の相手にも登坂接近していたのを止めてしまうと、
+    // 経路探索で回り込むぶん遅くなる。追加するのは**見えていないとき**の分だけにする。
+    const climbing = prey
+      ? prey.y > agent.y + 0.4
+      : targetY > agent.y + 0.4 && targetY > CATCH_VERTICAL;
     if (climbing) {
       const step = this.climbTarget(ctx, agent, targetX, targetZ, targetY);
       if (step) this.goal = step;
