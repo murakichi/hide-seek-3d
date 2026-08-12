@@ -440,6 +440,18 @@ export class HiderBrain {
     // 足場の上に居て、まだ誰も同じ高さに来ていないなら降りない。
     if (this.holdHighGround(ctx, agent, act, nearest)) return act;
 
+    // 鬼が同じ高さまで登ってきたら、**降りずに隣の高台へ跳び移る。**
+    //
+    // PR #50 で鬼も隙間を跳べるようになったので、1 つの高台に居座るだけでは
+    // 追いつかれる（実測で、高台に居るティックの 18% は鬼が同じ高さ帯に来ている）。
+    // ただし地上へ降りて別の高台まで走るのは割に合わない（過去に測って 1v1 −18 / −11）。
+    // **跳べる距離の隣へ移るだけ**なら地上を走らないので、そのコストが出ない。
+    //
+    // 高台に居る間の生存率は 50.0%（全体 31.7%）で、居られる時間を伸ばす価値はある。
+    if (agent.grounded && agent.y > CATCH_VERTICAL && this.hopToPerch(ctx, agent, act)) {
+      return act;
+    }
+
     if (nearest < p.fleeTriggerDist) {
       // 逃走中は目標地点を決め打ちしない。地点を目指すと壁際で詰まったり、
       // 目標更新の間に距離を詰められる。毎ティック方向を選び直す方が粘れる。
@@ -595,7 +607,21 @@ export class HiderBrain {
     const p = ctx.params.hider;
     if (p.gapHopReach <= 0) return false;
     // 既に「鬼が来られない高台」に居るなら跳ぶ必要は無い。
-    if (agent.y > CATCH_VERTICAL && this.perchIsIsolated(ctx, agent.x, agent.z, agent.y)) {
+    // 既に「鬼が来られない高台」に居るなら跳ぶ必要は無い。
+    // ただし PR #50 で鬼も隙間を跳べるようになったので、**同じ高さまで登られていたら
+    // 孤立していても安全ではない。**そのときは隣へ移る。
+    const chasedUp = ctx.game.state.agents.some(
+      (k) =>
+        k.team === 'seeker' &&
+        !k.caught &&
+        Math.abs(k.y - agent.y) < CATCH_VERTICAL &&
+        Math.hypot(k.x - agent.x, k.z - agent.z) < ctx.params.hider.fleeTriggerDist,
+    );
+    if (
+      agent.y > CATCH_VERTICAL &&
+      !chasedUp &&
+      this.perchIsIsolated(ctx, agent.x, agent.z, agent.y)
+    ) {
       return false;
     }
 
@@ -607,7 +633,9 @@ export class HiderBrain {
       const top = o.y + o.h;
       if (top <= CATCH_VERTICAL) continue;
       if (top > agent.y + CLIMB_REACH) continue; // 跳んでも届かない
-      if (top <= agent.y + 0.2) continue; // 今より高くない
+      // 追われて移るときは同じ高さでもよい（隣へ逃げるのが目的なので）。
+      if (!chasedUp && top <= agent.y + 0.2) continue;
+      if (chasedUp && top < agent.y - 0.2) continue;
       const gap = Math.hypot(o.x - agent.x, o.z - agent.z) - Math.max(o.hw, o.hd) - AGENT_RADIUS;
       if (gap > p.gapHopReach) continue;
       if (!this.perchIsIsolated(ctx, o.x, o.z, top)) continue; // 鬼が登ってこられる
