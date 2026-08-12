@@ -1,7 +1,11 @@
 name: CI
 
 on:
+  # 既定の types は opened / synchronize / reopened だけなので、draft を ready に
+  # しても走らない。draft のまま作られた PR は、ready にした時点で一度も測られて
+  # いない状態になる（実際 #53 と #55 が CI 無しで並んでいた）。
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 jobs:
