@@ -47,6 +47,10 @@ export interface HiderParams {
   perchPrepMargin: number;
   /** ジャンプ台を起点にするときの、台までの許容距離 */
   padApproach: number;
+  /** ジャンプ台の隣へ大箱を運んで高台を作る。台までの許容距離（0 で無効） */
+  buildPerch: number;
+  /** 準備フェーズの残りがこれを切ったら高台の建設を始める */
+  buildPerchStart: number;
   /** 隙間を挟んで跳び移れる水平距離（0 で無効） */
   gapHopReach: number;
   /** 高台の「孤立」判定：踏み台がこの距離より近くに無ければ鬼は登れない */
@@ -108,6 +112,8 @@ const BASE_PARAMS: AiParams = {
   hider: {
     perchPrepMargin: 10,
     padApproach: 12,
+    buildPerch: 16,
+    buildPerchStart: 26,
     gapHopReach: 4.5,
     perchIsolation: 3,
     boostGrabDist: 10,

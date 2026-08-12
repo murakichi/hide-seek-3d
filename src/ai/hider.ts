@@ -124,6 +124,20 @@ export class HiderBrain {
       if (this.holdHighGround(ctx, agent, act, Infinity)) return act;
     }
 
+    // 登れる高台が無いなら、**作る。**
+    //
+    // これまでの高台まわりの実装は「既にある高台を探す」形で、
+    // 「ジャンプ台の近くに大箱があり、その近くに踏み台が無い」という**偶然の配置待ち**
+    // だった。実測でも 3.0m 超に立てたのは 3.3%、高台に居るのは追跡時間の 3.1% しかない。
+    //
+    // 大箱の上面 2.2 は素の登坂力 1.64 を超えるので地上の鬼は登れず、
+    // `CATCH_VERTICAL`(1.6) も超えるので触られない。運搬の上限 `GRAB_MAX_SIZE` は 2.6、
+    // 大箱の hw+hd は 2.2〜3.0 なので、**小さめの大箱は運べる。**
+    // ジャンプ台の隣まで運べば、自分だけが乗れる足場になる。
+    if (p.buildPerch > 0 && ctx.game.state.phaseTime < p.buildPerchStart) {
+      if (this.buildPerchJob(ctx, agent, act)) return act;
+    }
+
     // 残り時間がわずかなら、荷物を捨てて拠点の内側に入る。
     if (ctx.game.state.phaseTime < p.retreatMargin) {
       this.releaseJob();
@@ -680,6 +694,88 @@ export class HiderBrain {
     act.jump = agent.grounded && best !== null;
     this.path = [];
     this.fleeAngle = null;
+    return true;
+  }
+
+  /**
+   * ジャンプ台の隣へ大箱を運んで、自分だけが乗れる高台を作る。
+   * 作業中は act を埋めて true を返す。
+   *
+   * 既に条件を満たす高台があるなら何もしない（`hopToPerch` が拾う）。
+   */
+  private buildPerchJob(ctx: AiContext, agent: Agent, act: Action): boolean {
+    const p = ctx.params.hider;
+    const s = ctx.game.state;
+
+    // 既に「台の隣の、踏み台が無い高台」があるなら作る必要は無い。
+    let pad: Obstacle | null = null;
+    let padD = Infinity;
+    for (const o of s.obstacles) {
+      if (o.kind !== 'pad') continue;
+      const d = Math.hypot(o.x - agent.x, o.z - agent.z);
+      if (d < padD) {
+        padD = d;
+        pad = o;
+      }
+    }
+    if (!pad || padD > p.buildPerch) return false;
+
+    for (const o of s.obstacles) {
+      if (o.kind === 'wall' || o.kind === 'pad' || o.kind === 'ramp') continue;
+      const top = o.y + o.h;
+      if (top <= CATCH_VERTICAL || top > PAD_JUMP_REACH) continue;
+      const spread = Math.hypot(o.x - pad.x, o.z - pad.z) - Math.max(o.hw, o.hd) - AGENT_RADIUS;
+      if (spread > p.gapHopReach) continue;
+      if (this.perchIsIsolated(ctx, o.x, o.z, top)) return false; // もう在る
+    }
+
+    // 運べる大箱を探す。上面が CATCH_VERTICAL を超えていて、掴める大きさのもの。
+    let box: Obstacle | null = null;
+    let bestD = Infinity;
+    for (const o of s.obstacles) {
+      if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
+      if (o.y + o.h <= CATCH_VERTICAL) continue; // 乗っても捕まる
+      if (o.hw + o.hd > GRAB_MAX_SIZE) continue; // 掴めない
+      if ((this.avoid.get(o.id) ?? 0) > s.time) continue;
+      const d = Math.hypot(o.x - agent.x, o.z - agent.z);
+      if (d < bestD) {
+        bestD = d;
+        box = o;
+      }
+    }
+    if (!box) return false;
+
+    // 置き先は台の横。跳び移れる距離に収め、台そのものは塞がない。
+    const len = Math.hypot(box.x - pad.x, box.z - pad.z) || 1;
+    const off = Math.max(pad.hw, pad.hd) + Math.max(box.hw, box.hd) + 1.2;
+    const dropX = clampToArena(pad.x + ((box.x - pad.x) / len) * off);
+    const dropZ = clampToArena(pad.z + ((box.z - pad.z) / len) * off);
+
+    if (Math.hypot(box.x - dropX, box.z - dropZ) < 1.0) return false; // もう置けている
+
+    if (agent.grabbed === box.id) {
+      act.grab = true;
+      this.moveTo(ctx, agent, act, dropX - agent.grabOffX, dropZ - agent.grabOffZ, false);
+      act.aimX = box.x - agent.x;
+      act.aimZ = box.z - agent.z;
+      const moved = Math.hypot(box.x - this.lastBoxX, box.z - this.lastBoxZ);
+      this.lastBoxX = box.x;
+      this.lastBoxZ = box.z;
+      this.boxStall = moved < 0.02 ? this.boxStall + DT : 0;
+      if (this.boxStall > 0.35 && agent.grounded) act.jump = true;
+      // 大箱は重いので詰まりやすい。粘っても駄目なら諦めて次の箱へ。
+      if (this.boxStall > 2.0) this.abandon(ctx, box.id);
+      return true;
+    }
+
+    const approach = this.approachPoint(ctx, box, agent);
+    this.moveTo(ctx, agent, act, approach.x, approach.z, false);
+    act.aimX = box.x - agent.x;
+    act.aimZ = box.z - agent.z;
+    const reach =
+      Math.hypot(box.x - agent.x, box.z - agent.z) - Math.max(box.hw, box.hd) - AGENT_RADIUS;
+    act.grab = reach < GRAB_RANGE;
+    if (this.stuckTimer > 2.5) this.abandon(ctx, box.id);
     return true;
   }
 
