@@ -1,15 +1,18 @@
 // 一時的な計測スクリプト（改善サイクル用・使い捨て）。
-// 追跡中、逃げる側は上限の 60% 未満のティックが 16.3% あった。
-// **鬼側と比べて、どちらがより «詰まって» いるのか**を見る。
 //
-// 逃げる側は毎ティック向きを選び直すので、鬼より曲がりが多く、
-// 障害物に当たって速度を失っている可能性がある。
+// 仮説: 鬼の巡回は `age`（そのセルを最後に見てからの経過時間）で行き先を選ぶ。
+// 拠点は試合を通じて動かないので age が溜まり続け、**いずれ必ず巡回目標になる。**
+// 逃げる側は振り切ると拠点へ帰るので、**自分から掃除待ちの場所へ戻っている**のでは。
+//
+// 見るもの:
+//   - 捕獲された地点が、自分の拠点から何 m か
+//   - 鬼が «拠点の周り» で過ごした時間の割合（面積比と比べる）
 //
 // 使い方: npx tsx src/sim/_probe.ts <hiders> <seekers> [seed0]
 
 import { AiDirector } from '../ai/director';
 import { DEFAULT_PARAMS } from '../ai/params';
-import { DT, HIDER_SPEED, HUNT_TIME, PREP_TIME, SEEKER_SPEED } from '../core/config';
+import { ARENA_HALF, DT, HUNT_TIME, PREP_TIME } from '../core/config';
 import { Game } from '../core/game';
 import type { MatchConfig } from '../core/types';
 
@@ -18,18 +21,18 @@ const GAMES = 30;
 const HIDERS = Number(process.argv[2] ?? 2);
 const SEEKERS = Number(process.argv[3] ?? 2);
 const SEED0 = Number(process.argv[4] ?? 1234);
-const NEAR = 13;
+/** 「拠点の周り」とみなす半径 */
+const HOME_R = 6;
 
-let chaseTicks = 0;
-let hSlow = 0;
-let sSlow = 0;
-/** 入力（moveX/moveZ）は出ているのに実速度が上限の 60% 未満 = 何かに当たっている */
-let hBlocked = 0;
-let sBlocked = 0;
-/** 前ティックからの進行方向の変化（度）の合計 */
-let hTurn = 0;
-let sTurn = 0;
-let turnN = 0;
+let caught = 0;
+let caughtNearHome = 0;
+let distAtCatchSum = 0;
+/** 鬼が どれかの拠点から HOME_R 以内に居たティック */
+let seekerNearHome = 0;
+let seekerTicks = 0;
+/** 逃げる側が拠点から HOME_R 以内に居たティック */
+let hiderNearHome = 0;
+let hiderTicks = 0;
 let totalHiders = 0;
 let survivors = 0;
 
@@ -42,57 +45,52 @@ for (let g = 0; g < GAMES; g++) {
   };
   const game = new Game(config);
   const ai = new AiDirector(game, DEFAULT_PARAMS);
-  const prevHeading = new Map<number, number>();
+  const prevCaught = new Set<number>();
+  /** 拠点は準備フェーズで決まるので、hunt に入った時点で控える */
+  let homes: Array<{ id: number; x: number; z: number }> = [];
 
   for (let t = 0; t < MAX_TICKS; t++) {
     const actions = ai.tick();
     const s = game.state;
 
     if (s.phase === 'hunt') {
-      for (const a of s.agents) {
-        if (a.team !== 'hider' || a.caught) continue;
-        let best = null;
-        let bestD = NEAR;
-        for (const sk of s.agents) {
-          if (sk.team !== 'seeker' || sk.caught) continue;
-          const d = Math.hypot(sk.x - a.x, sk.z - a.z);
-          if (d < bestD) {
-            bestD = d;
-            best = sk;
-          }
+      if (homes.length === 0) {
+        for (const a of s.agents) {
+          if (a.team !== 'hider') continue;
+          const h = ai.shelterOf(a.id);
+          if (h) homes.push({ id: a.id, x: h.x, z: h.z });
         }
-        if (!best) continue;
-        chaseTicks++;
-
-        const measure = (
-          ag: typeof a,
-          cap: number,
-          onSlow: () => void,
-          onBlocked: () => void,
-        ): number => {
-          const sp = Math.hypot(ag.vx, ag.vz);
-          if (sp < cap * 0.6) {
-            onSlow();
-            const act = actions.get(ag.id);
-            const input = act ? Math.hypot(act.moveX, act.moveZ) : 0;
-            if (input > 0.5) onBlocked();
-          }
-          const head = Math.atan2(ag.vx, ag.vz);
-          const prev = prevHeading.get(ag.id);
-          prevHeading.set(ag.id, head);
-          if (prev === undefined || sp < 1) return 0;
-          let d = Math.abs(head - prev);
-          if (d > Math.PI) d = Math.PI * 2 - d;
-          return (d * 180) / Math.PI;
-        };
-
-        hTurn += measure(a, HIDER_SPEED, () => hSlow++, () => hBlocked++);
-        sTurn += measure(best, SEEKER_SPEED, () => sSlow++, () => sBlocked++);
-        turnN++;
+      }
+      for (const a of s.agents) {
+        if (a.caught) continue;
+        if (a.team === 'seeker') {
+          seekerTicks++;
+          if (homes.some((h) => Math.hypot(h.x - a.x, h.z - a.z) < HOME_R)) seekerNearHome++;
+        } else {
+          hiderTicks++;
+          const mine = homes.find((h) => h.id === a.id);
+          if (mine && Math.hypot(mine.x - a.x, mine.z - a.z) < HOME_R) hiderNearHome++;
+        }
       }
     }
 
+    const before = new Map(
+      game.state.agents
+        .filter((a) => a.team === 'hider' && !a.caught)
+        .map((a) => [a.id, { x: a.x, z: a.z }]),
+    );
     game.step(actions);
+    for (const a of game.state.agents) {
+      if (a.team !== 'hider' || !a.caught || prevCaught.has(a.id)) continue;
+      prevCaught.add(a.id);
+      caught++;
+      const b = before.get(a.id);
+      const mine = homes.find((h) => h.id === a.id);
+      if (!b || !mine) continue;
+      const d = Math.hypot(mine.x - b.x, mine.z - b.z);
+      distAtCatchSum += d;
+      if (d < HOME_R) caughtNearHome++;
+    }
     if (game.state.phase === 'over') break;
   }
 
@@ -103,9 +101,12 @@ for (let g = 0; g < GAMES; g++) {
   }
 }
 
+// 拠点 1 つあたりの円の面積 / アリーナ面積
+const areaShare = (Math.PI * HOME_R * HOME_R * HIDERS) / ((ARENA_HALF * 2) ** 2);
 const pct = (n: number, d: number): string => `${((n / Math.max(1, d)) * 100).toFixed(1)}%`;
-console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合 (seed0=${SEED0})  追跡=${NEAR}m 以内`);
-console.log(`  全体の生存率: ${pct(survivors, totalHiders)}   追跡ティック ${chaseTicks}`);
-console.log(`  上限の 60% 未満だったティック   逃 ${pct(hSlow, chaseTicks)}   鬼 ${pct(sSlow, chaseTicks)}`);
-console.log(`    うち入力は出ていた（＝当たっている） 逃 ${pct(hBlocked, chaseTicks)}   鬼 ${pct(sBlocked, chaseTicks)}`);
-console.log(`  1 ティックあたりの進行方向の変化   逃 ${(hTurn / Math.max(1, turnN)).toFixed(2)} 度   鬼 ${(sTurn / Math.max(1, turnN)).toFixed(2)} 度`);
+console.log(`${HIDERS}v${SEEKERS} / ${GAMES} 試合 (seed0=${SEED0})  拠点の周り=${HOME_R}m`);
+console.log(`  全体の生存率: ${pct(survivors, totalHiders)}  (捕獲 ${caught} 件)`);
+console.log(`  捕獲が自分の拠点から ${HOME_R}m 以内: ${pct(caughtNearHome, caught)}`);
+console.log(`  捕獲時の拠点からの距離（平均）: ${(distAtCatchSum / Math.max(1, caught)).toFixed(1)} m`);
+console.log(`  鬼が拠点の周りに居たティック: ${pct(seekerNearHome, seekerTicks)}   (面積比では ${(areaShare * 100).toFixed(1)}%)`);
+console.log(`  逃げる側が自分の拠点の周りに居たティック: ${pct(hiderNearHome, hiderTicks)}`);
