@@ -50,7 +50,7 @@ const LEAP_MARGIN = 0.8;
  * 跳べる位置まで近づく前に動けなくなる。**
  * 広げすぎると踏み台が遠いうちから直進して途中の箱に突っかかるので、その手前で止める。
  */
-const CLIMB_APPROACH = 7;
+const CLIMB_APPROACH = 4.5;
 
 /** 諦めた目標を避け続ける秒数。長すぎると盤面の一部を見なくなる */
 const AVOID_TIME = 12;
