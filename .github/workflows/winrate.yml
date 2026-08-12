@@ -5,7 +5,11 @@ name: 勝率
 # 手元で何十分も CPU を回す代わりに、構成 × seed を並列ジョブに割って測る。
 
 on:
+  # 既定の types は opened / synchronize / reopened だけなので、draft を ready に
+  # しても走らない。draft のまま作られた PR は、ready にした時点で勝率が
+  # 一度も測られていない状態になる（実際 #53 と #55 が CI 無しで並んでいた）。
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       games:
