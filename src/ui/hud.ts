@@ -2,8 +2,17 @@
 
 import { STAMINA_MAX } from '../core/config';
 import type { Game } from '../core/game';
+import type { CameraMode } from '../render/renderer';
 
 const SPEEDS = [1, 2, 4, 8];
+
+/** カメラ操作のハンドラ。描画側の実装は知らずに、押されたことだけ伝える。 */
+export interface CameraControls {
+  /** 俯瞰 / 追従 の切り替え */
+  mode: () => void;
+  /** steps が正で寄る */
+  zoom: (steps: number) => void;
+}
 
 export class Hud {
   private el: HTMLDivElement;
@@ -15,6 +24,7 @@ export class Hud {
   private resultEl: HTMLDivElement;
   private speedEl: HTMLDivElement;
   private toolsEl: HTMLDivElement;
+  private cameraEl: HTMLDivElement;
   private speed = 1;
 
   constructor(
@@ -24,6 +34,8 @@ export class Hud {
     private onSpeed: (multiplier: number) => void,
     /** 対戦ログをファイルに保存する。渡されなければボタンを出さない */
     private onSaveLog?: () => void,
+    /** カメラ操作。渡されなければボタンを出さない */
+    private camera?: CameraControls,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'hud';
@@ -35,6 +47,7 @@ export class Hud {
       <div class="roster"></div>
       <div class="speed"></div>
       <div class="tools"></div>
+      <div class="camera"></div>
       <div class="hud-bottom">
         <div class="stamina"><i></i></div>
         <div class="hint"></div>
@@ -50,8 +63,33 @@ export class Hud {
     this.resultEl = this.el.querySelector('.result')!;
     this.speedEl = this.el.querySelector('.speed')!;
     this.toolsEl = this.el.querySelector('.tools')!;
+    this.cameraEl = this.el.querySelector('.camera')!;
     this.buildSpeedControls();
     this.buildTools();
+    this.buildCameraControls();
+  }
+
+  /**
+   * カメラ操作。ホイールと C キーでも同じことができるが、
+   * 「触れる」ことが分からないと誰も試さないのでボタンを出しておく。
+   */
+  private buildCameraControls(): void {
+    if (!this.camera) return;
+    this.cameraEl.innerHTML = `
+      <button class="mode" title="俯瞰 / 追従 を切り替える（C）">俯瞰</button>
+      <button class="zin" title="寄る（ホイール / Z）">＋</button>
+      <button class="zout" title="引く（ホイール / X）">−</button>`;
+    this.cameraEl.querySelector<HTMLButtonElement>('.mode')!.onclick = () => this.camera!.mode();
+    this.cameraEl.querySelector<HTMLButtonElement>('.zin')!.onclick = () => this.camera!.zoom(1);
+    this.cameraEl.querySelector<HTMLButtonElement>('.zout')!.onclick = () => this.camera!.zoom(-1);
+  }
+
+  /** いまのカメラモードをボタンの表示に反映する。 */
+  setCameraMode(mode: CameraMode): void {
+    const btn = this.cameraEl?.querySelector<HTMLButtonElement>('.mode');
+    if (!btn) return;
+    btn.textContent = mode === 'follow' ? '追従' : '俯瞰';
+    btn.classList.toggle('on', mode === 'follow');
   }
 
   /**

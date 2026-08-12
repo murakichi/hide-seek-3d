@@ -27,10 +27,37 @@ const COLOR = {
   pad: 0xc98bff,
 };
 
+/**
+ * 人型の各部の寸法。AGENT_HEIGHT / AGENT_RADIUS への比率で持つので、
+ * 当たり判定のサイズを変えても見た目が破綻しない。
+ * 俯瞰カメラでは 1.7 m の人が数十ピクセルにしかならないので、
+ * 手足は細長くせず、頭・肩・くちばしの塊で向きが読めることを優先している。
+ */
+const BODY = {
+  hipY: 0.38, // 股関節の高さ（× 身長）
+  legRadius: 0.28, // 脚の太さ（× 半径）
+  legOffset: 0.34, // 脚の左右間隔（× 半径）
+  torsoY: 0.55, // 胴の中心（× 身長）
+  torsoRadius: 0.68, // 胴の大きさ（× 半径）
+  shoulderY: 0.68, // 肩の高さ（× 身長）
+  shoulderOffset: 0.95, // 肩の左右間隔（× 半径）
+  armRadius: 0.21, // 腕の太さ（× 半径）
+  armLength: 0.24, // 腕の長さ（× 身長）
+  headRadius: 0.5, // 頭の大きさ（× 半径）
+};
+
 interface AgentVisual {
   group: THREE.Group;
-  body: THREE.Mesh;
-  nose: THREE.Mesh;
+  /** 腰から上。跳んだときの縮こまりや上下の揺れをここに掛ける */
+  rig: THREE.Group;
+  legL: THREE.Group;
+  legR: THREE.Group;
+  armL: THREE.Group;
+  armR: THREE.Group;
+  /** 捕獲時に透過させる。体のパーツ全部ぶん持つ */
+  mats: THREE.MeshStandardMaterial[];
+  /** 歩幅の位相。移動距離を積んでいく（速いほど速く回る） */
+  walk: number;
   ring: THREE.Mesh | null;
   ghost: THREE.Mesh;
 }
@@ -44,6 +71,8 @@ export class GameView {
   private cage: THREE.Mesh;
   private viewCone: THREE.Mesh;
   private root = new THREE.Group();
+  /** 前回 sync したゲーム内時刻。手足の位相を進める差分に使う */
+  private lastSyncTime = 0;
 
   constructor(private renderer: Renderer, game: Game) {
     renderer.scene.add(this.root);
@@ -86,6 +115,7 @@ export class GameView {
     this.lockRings.clear();
     this.pickupMeshes.clear();
     this.smokeMeshes.clear();
+    this.lastSyncTime = game.state.time;
 
     for (const o of game.state.obstacles) this.createObstacle(o);
     for (const a of game.state.agents) this.createAgent(a);
@@ -207,29 +237,98 @@ export class GameView {
 
   private createAgent(a: Agent): void {
     const group = new THREE.Group();
-    const color = a.team === 'seeker' ? COLOR.seeker : COLOR.hider;
+    const H = AGENT_HEIGHT;
+    const R = AGENT_RADIUS;
+    const seeker = a.team === 'seeker';
+    const color = seeker ? COLOR.seeker : COLOR.hider;
+    const dark = seeker ? COLOR.seekerDark : COLOR.hiderDark;
 
-    const body = new THREE.Mesh(
-      new THREE.CapsuleGeometry(AGENT_RADIUS, AGENT_HEIGHT - AGENT_RADIUS * 2, 6, 14),
-      new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.5,
-        emissive: a.team === 'seeker' ? COLOR.seekerDark : COLOR.hiderDark,
-        emissiveIntensity: 0.35,
-      }),
-    );
-    body.position.y = AGENT_HEIGHT / 2;
-    body.castShadow = true;
-    group.add(body);
+    const skin = new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.5,
+      emissive: dark,
+      emissiveIntensity: 0.35,
+    });
+    // 胴は頭より一段、手足はさらに一段暗くする。同色の球が繋がると
+    // 俯瞰では雪だるまの塊にしか見えないので、明度差で頭・胴・手足を分ける。
+    const suit = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(color).lerp(new THREE.Color(dark), 0.4),
+      roughness: 0.55,
+    });
+    const limb = new THREE.MeshStandardMaterial({ color: dark, roughness: 0.6 });
+    const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+    const pupil = new THREE.MeshStandardMaterial({ color: 0x10141c, roughness: 0.5 });
+    const mats = [skin, suit, limb, white, pupil];
 
-    // 向きが分かるくちばし。
-    const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(0.22, 0.55, 8),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 }),
-    );
+    const part = (geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Object3D) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
+
+    // 脚。股関節を原点にした Group を回して振り出す。
+    const legRad = R * BODY.legRadius;
+    const hipY = H * BODY.hipY;
+    const legGeo = new THREE.CapsuleGeometry(legRad, Math.max(0.05, hipY - legRad * 2), 4, 10);
+    const legs: THREE.Group[] = [];
+    for (const side of [-1, 1]) {
+      const hip = new THREE.Group();
+      hip.position.set(side * R * BODY.legOffset, hipY, 0);
+      const mesh = part(legGeo, limb, hip);
+      mesh.position.y = -hipY / 2;
+      group.add(hip);
+      legs.push(hip);
+    }
+
+    // 腰から上。跳躍や上下の揺れはこの Group ごと動かす。
+    const rig = new THREE.Group();
+    rig.position.y = hipY;
+    group.add(rig);
+
+    const torso = part(new THREE.SphereGeometry(R * BODY.torsoRadius, 16, 12), suit, rig);
+    torso.scale.set(0.95, 1.05, 0.78);
+    torso.position.y = H * BODY.torsoY - hipY;
+
+    // 腕。肩を原点にして前後に振る。
+    const armRad = R * BODY.armRadius;
+    const armLen = H * BODY.armLength;
+    const armGeo = new THREE.CapsuleGeometry(armRad, armLen, 4, 10);
+    const arms: THREE.Group[] = [];
+    for (const side of [-1, 1]) {
+      const shoulder = new THREE.Group();
+      shoulder.position.set(side * R * BODY.shoulderOffset, H * BODY.shoulderY - hipY, 0);
+      const mesh = part(armGeo, limb, shoulder);
+      mesh.position.y = -(armLen / 2 + armRad);
+      rig.add(shoulder);
+      arms.push(shoulder);
+    }
+
+    // 頭。頭頂が身長ちょうどに来る高さに置く。
+    const headRad = R * BODY.headRadius;
+    const headY = H - headRad * 1.05;
+    const head = new THREE.Group();
+    head.position.y = headY - hipY;
+    rig.add(head);
+    part(new THREE.SphereGeometry(headRad, 16, 12), skin, head);
+
+    // 首。胴と頭のあいだに暗い段を入れて輪郭を切る。
+    const neck = part(new THREE.CylinderGeometry(headRad * 0.5, headRad * 0.6, 0.16, 10), limb, rig);
+    neck.position.y = headY - hipY - headRad * 0.85;
+
+    // 目。俯瞰では小さいが、正面から見たときの人らしさを担う。
+    for (const side of [-1, 1]) {
+      const eye = part(new THREE.SphereGeometry(headRad * 0.3, 10, 8), white, head);
+      eye.position.set(side * headRad * 0.42, headRad * 0.12, headRad * 0.82);
+      const iris = part(new THREE.SphereGeometry(headRad * 0.15, 8, 6), pupil, head);
+      iris.position.set(side * headRad * 0.42, headRad * 0.12, headRad * 1.02);
+    }
+
+    // 向きが分かるくちばし。元は胴に生えていたが、人型では顔に付ける。
+    // 俯瞰だと頭から前に突き出た白い棘として読める。
+    const nose = part(new THREE.ConeGeometry(headRad * 0.42, headRad * 1.5, 8), white, head);
     nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, AGENT_HEIGHT * 0.72, AGENT_RADIUS + 0.2);
-    group.add(nose);
+    nose.position.set(0, -headRad * 0.1, headRad * 1.15);
 
     let ring: THREE.Mesh | null = null;
     if (a.isPlayer) {
@@ -259,12 +358,58 @@ export class GameView {
     ghost.visible = false;
     this.root.add(ghost);
 
-    this.agentVisuals.set(a.id, { group, body, nose, ring, ghost });
+    this.agentVisuals.set(a.id, {
+      group,
+      rig,
+      legL: legs[0],
+      legR: legs[1],
+      armL: arms[0],
+      armR: arms[1],
+      mats,
+      walk: 0,
+      ring,
+      ghost,
+    });
+  }
+
+  /**
+   * 人型の手足を動かす。ゲーム状態は読むだけで書き換えない（決定論に影響しない）。
+   * 位相は移動距離で進めるので、速く走るほど歩幅の回転も速くなる。
+   */
+  private animateAgent(v: AgentVisual, a: Agent, dt: number): void {
+    const speed = Math.hypot(a.vx, a.vz);
+    v.walk += speed * dt * 2.4;
+
+    const swing = Math.sin(v.walk) * Math.min(0.8, speed * 0.16);
+    const grabbing = a.grabbed >= 0;
+
+    if (!a.grounded) {
+      // 跳んでいる間は脚を畳んで腕を上げる。着地との違いが俯瞰でも分かる。
+      v.legL.rotation.x = -0.5;
+      v.legR.rotation.x = 0.35;
+      v.armL.rotation.x = -2.1;
+      v.armR.rotation.x = -2.1;
+    } else {
+      v.legL.rotation.x = swing;
+      v.legR.rotation.x = -swing;
+      v.armL.rotation.x = grabbing ? -1.5 : -swing;
+      v.armR.rotation.x = grabbing ? -1.5 : swing;
+    }
+    // 掴んでいる間は腕を内側に寄せて、箱を抱えている形にする。
+    v.armL.rotation.z = grabbing ? 0.35 : 0;
+    v.armR.rotation.z = grabbing ? -0.35 : 0;
+
+    // 歩くと 1 歩ごとに腰が上下する（歩数は歩幅の 2 倍で刻む）。
+    const bob = Math.abs(Math.sin(v.walk)) * Math.min(1, speed * 0.2) * 0.06;
+    v.rig.position.y = AGENT_HEIGHT * BODY.hipY + bob;
   }
 
   /** 毎フレーム呼ぶ。観戦モードでは viewerTeam を null にすると全員見える。 */
   sync(game: Game, viewerTeam: Team | null): void {
     const s = game.state;
+    // 手足のアニメーションだけに使う経過時間。早送り中は歩幅もそのぶん速く回る。
+    const dt = Math.max(0, Math.min(0.5, s.time - this.lastSyncTime));
+    this.lastSyncTime = s.time;
 
     for (const o of s.obstacles) {
       const mesh = this.obstacleMeshes.get(o.id);
@@ -321,9 +466,11 @@ export class GameView {
       const show = !a.caught && (isOwnTeam || spotted);
 
       v.group.visible = show;
-      const mat = v.body.material as THREE.MeshStandardMaterial;
-      mat.opacity = a.caught ? 0.25 : 1;
-      mat.transparent = a.caught;
+      for (const mat of v.mats) {
+        mat.opacity = a.caught ? 0.25 : 1;
+        mat.transparent = a.caught;
+      }
+      this.animateAgent(v, a, dt);
 
       // 見えていない敵は、最後に見た位置にマーカーだけ残す。
       if (!isOwnTeam && !spotted && !a.caught && viewerTeam) {
@@ -340,11 +487,18 @@ export class GameView {
       }
 
       if (a.caught) {
+        // 捕まったら小さくうずくまる。動かない塊として場に残す。
         v.group.visible = true;
         v.group.scale.setScalar(0.55);
         v.group.position.y = a.y + 0.1;
+        v.rig.rotation.x = -1.1;
+        v.legL.rotation.x = -1.4;
+        v.legR.rotation.x = -1.4;
+        v.armL.rotation.x = 0.6;
+        v.armR.rotation.x = 0.6;
       } else {
         v.group.scale.setScalar(1);
+        v.rig.rotation.x = 0;
       }
     }
 
