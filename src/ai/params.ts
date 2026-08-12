@@ -57,10 +57,6 @@ export interface HiderParams {
   decoyLockDist: number;
   /** 準備フェーズの残りがこれ以上あるときだけ囮を取りに行く */
   decoyLockMargin: number;
-  /** 視線が切れている間だけ、この距離までパックを取りに行く（0 で無効） */
-  boostGrabDist: number;
-  /** パックへ寄り道してよい「最寄りの鬼との距離」の下限 */
-  boostGrabSafeDist: number;
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -115,8 +111,6 @@ const BASE_PARAMS: AiParams = {
     lockShelter: 1,
     decoyLockDist: 11,
     decoyLockMargin: 10,
-    boostGrabDist: 10,
-    boostGrabSafeDist: 9,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,

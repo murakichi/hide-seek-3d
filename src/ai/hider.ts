@@ -495,32 +495,6 @@ export class HiderBrain {
       }
     }
 
-    // 追われている最中に視線が切れたら、その隙にパックを取る。
-    //
-    // パックの本体はスタミナ回復ではなくブースト。ブースト中のダッシュ消費は
-    // `DASH_COST * BOOST_DASH_COST` = 34 × 0.45 = 15.3/秒 で、回復 19/秒 を下回るので
-    // **`BOOST_TIME`(6 秒) のあいだはダッシュし放題**になる。残量に関係なく効く。
-    //
-    // 逃走中に取りに行かせる形は測って駄目だった（条件を外すと 2v2 −4.0、
-    // 80% に緩めても 1v1 −3.0）。パックは開けた場所に湧くので、
-    // **追われながらの寄り道は被発見と引き換え**になる。
-    //
-    // 「見られていない」だけでも足りない。鬼が 2 人以上いると
-    // **近くに居るのにたまたま視線が切れている**瞬間が増え、そこで寄り道すると
-    // 視線が戻った時点で間合いが詰んでいる（実測で 2v2 だけ −6.0 pt 落ちた）。
-    // 距離でも門を掛ける。
-    if (recent.length > 0 && p.boostGrabDist > 0 && nearest > p.boostGrabSafeDist) {
-      const seen = s.agents.some(
-        (sk) => sk.team === 'seeker' && !sk.caught && canSee(s, sk, agent),
-      );
-      if (!seen) {
-        const pack = nearestPickup(ctx, agent, p.boostGrabDist);
-        if (pack && !this.routeIsRisky(ctx, agent, pack.x, pack.z, recent)) {
-          return this.moveTo(ctx, agent, act, pack.x, pack.z, false);
-        }
-      }
-    }
-
     // 脅威が無い間は拠点付近で待機。たまに周囲を見る。
     const home = this.home(ctx, agent) ?? { x: agent.x, z: agent.z };
     const d = Math.hypot(home.x - agent.x, home.z - agent.z);
