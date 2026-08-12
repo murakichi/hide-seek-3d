@@ -26,6 +26,8 @@ export class Hud {
   private toolsEl: HTMLDivElement;
   private cameraEl: HTMLDivElement;
   private speed = 1;
+  /** いまの試合がサンドボックス発か。結果画面の選択肢が変わる */
+  private sandbox = false;
 
   constructor(
     root: HTMLElement,
@@ -36,6 +38,8 @@ export class Hud {
     private onSaveLog?: () => void,
     /** カメラ操作。渡されなければボタンを出さない */
     private camera?: CameraControls,
+    /** サンドボックスの編集へ戻る。サンドボックスの試合でだけ結果画面に出す */
+    private onEdit?: () => void,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'hud';
@@ -130,6 +134,11 @@ export class Hud {
     return true;
   }
 
+  /** 試合を始めるときに、その試合がサンドボックス発かどうかを伝える。 */
+  setSandbox(on: boolean): void {
+    this.sandbox = on;
+  }
+
   show(): void {
     this.el.style.display = 'block';
   }
@@ -200,11 +209,20 @@ export class Hud {
         <div class="stats">経過 ${formatTime(s.time)}</div>
         <div class="result-buttons">
           <button class="again">もう一度</button>
-          <button class="tomenu">設定を変える</button>
+          ${this.sandbox && this.onEdit ? '<button class="toedit">配置を編集</button>' : ''}
+          <button class="tomenu">${this.sandbox ? 'メニューへ' : '設定を変える'}</button>
           ${this.onSaveLog ? '<button class="savelog">ログを保存</button>' : ''}
         </div>
       </div>`;
     this.resultEl.classList.add('on');
+    const editBtn = this.resultEl.querySelector<HTMLButtonElement>('.toedit');
+    if (editBtn) {
+      editBtn.onclick = () => {
+        this.resultEl.classList.remove('on');
+        this.resultEl.innerHTML = '';
+        this.onEdit!();
+      };
+    }
     if (this.onSaveLog) {
       // 保存しても結果画面は閉じない。何度でも押せる。
       this.resultEl.querySelector<HTMLButtonElement>('.savelog')!.onclick = () => this.onSaveLog!();

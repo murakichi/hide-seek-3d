@@ -28,6 +28,8 @@ export class Menu {
   constructor(
     private root: HTMLElement,
     private onStart: (r: MenuResult) => void,
+    /** サンドボックス（自分で盤面を組むモード）へ。渡さなければボタンを出さない */
+    private onSandbox?: () => void,
   ) {
     this.el = document.createElement('div');
     this.el.className = 'menu';
@@ -64,6 +66,7 @@ export class Menu {
         </div>
 
         <button class="start">試合開始</button>
+        ${this.onSandbox ? '<button class="sandbox-enter">サンドボックス — 自分で盤面を組む</button>' : ''}
 
         <div class="controls">
           <div><kbd>WASD</kbd> 移動 <kbd>Shift</kbd> ダッシュ <kbd>Space</kbd> ジャンプ</div>
@@ -89,6 +92,13 @@ export class Menu {
       this.hide();
       this.onStart({ hiders: p.hiders, seekers: p.seekers, playerTeam: this.side });
     };
+    const sandboxBtn = this.el.querySelector<HTMLButtonElement>('.sandbox-enter');
+    if (sandboxBtn && this.onSandbox) {
+      sandboxBtn.onclick = () => {
+        this.hide();
+        this.onSandbox!();
+      };
+    }
   }
 
   show(): void {

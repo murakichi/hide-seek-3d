@@ -6,7 +6,11 @@ import type { Obstacle, ObstacleKind, Pickup } from './types';
 
 let nextId = 0;
 
-function make(
+/**
+ * 障害物を 1 つ作る。ID は 0 で返すので、配列に入れる側で振り直すこと
+ * （`Game` は `obstacles[id]` で引くため、ID = 添字であることが前提）。
+ */
+export function makeObstacle(
   kind: ObstacleKind,
   x: number,
   z: number,
@@ -16,7 +20,7 @@ function make(
   rampDir: 0 | 1 | 2 | 3 = 0,
 ): Obstacle {
   return {
-    id: nextId++,
+    id: 0,
     kind,
     x,
     z,
@@ -32,8 +36,20 @@ function make(
   };
 }
 
+function make(
+  kind: ObstacleKind,
+  x: number,
+  z: number,
+  hw: number,
+  hd: number,
+  h: number,
+  rampDir: 0 | 1 | 2 | 3 = 0,
+): Obstacle {
+  return { ...makeObstacle(kind, x, z, hw, hd, h, rampDir), id: nextId++ };
+}
+
 /** 外周の壁。エージェントが場外に出ないようにする物理的な境界も兼ねる。 */
-function borderWalls(): Obstacle[] {
+export function borderWalls(): Obstacle[] {
   const t = 0.6;
   const a = ARENA_HALF + t;
   return [
@@ -42,6 +58,15 @@ function borderWalls(): Obstacle[] {
     make('wall', a, 0, t, a + t, 3),
     make('wall', -a, 0, t, a + t, 3),
   ];
+}
+
+/**
+ * 外周の壁か。中に置ける物はすべてアリーナの内側に収まるので、
+ * 中心から `ARENA_HALF` より外に出ているのは外周の壁だけになる。
+ * サンドボックスが「消させない障害物」を見分けるのに使う。
+ */
+export function isBorderWall(o: Obstacle): boolean {
+  return Math.abs(o.x) >= ARENA_HALF || Math.abs(o.z) >= ARENA_HALF;
 }
 
 /** 部屋らしさを作る固定壁。中央のケージ周辺は空けておく。 */

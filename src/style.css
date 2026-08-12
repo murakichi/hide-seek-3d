@@ -161,6 +161,24 @@ kbd {
   filter: brightness(1.1);
 }
 
+.sandbox-enter {
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #cfd8e6;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sandbox-enter:hover {
+  border-color: #6fe8b0;
+  color: #6fe8b0;
+}
+
 .controls {
   margin-top: 18px;
   padding-top: 14px;
@@ -444,7 +462,9 @@ kbd {
 
 .result-buttons button {
   flex: 1;
-  padding: 11px 20px;
+  /* サンドボックスでは 4 つ並ぶ。折り返すと読みにくいので 1 行に保つ。 */
+  white-space: nowrap;
+  padding: 11px 16px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.06);
@@ -463,4 +483,288 @@ kbd {
 
 .result-buttons button:hover {
   filter: brightness(1.12);
+}
+
+/* ---- サンドボックス ---- */
+
+.sandbox {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  pointer-events: none;
+}
+
+.sb-panel {
+  width: 300px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 16px 16px 20px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.sb-head h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0.1em;
+}
+
+.sb-head p {
+  margin: 4px 0 0;
+  color: #7d8ba1;
+  font-size: 12px;
+}
+
+.sb-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sb-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #9fb0c6;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+
+.sb-sub {
+  color: #63718a;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.sb-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sb-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #dbe3ef;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sb-tool:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.sb-tool.on {
+  border-color: #6fe8b0;
+  background: rgba(111, 232, 176, 0.14);
+  color: #d8fff0;
+}
+
+.sb-key {
+  min-width: 15px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #8fa0b8;
+  font-size: 10px;
+  text-align: center;
+}
+
+.sb-team {
+  margin-bottom: 10px;
+}
+
+.sb-team-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.sb-team-head b {
+  font-weight: 600;
+}
+
+.sb-team.hider .dot {
+  background: var(--hider);
+}
+
+.sb-team.seeker .dot {
+  background: var(--seeker);
+}
+
+.sb-team .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sb-count {
+  margin-left: auto;
+  color: #9fb0c6;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-team-head button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #dbe3ef;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sb-team-head button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sb-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.sb-member {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfd8e6;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sb-member em {
+  color: #ffe14d;
+  font-style: normal;
+}
+
+.sb-member.sel {
+  border-color: #ffe14d;
+}
+
+.sb-member.player {
+  background: rgba(255, 225, 77, 0.14);
+  color: #fff6cc;
+}
+
+.sb-member:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sb-spectate {
+  width: 100%;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfd8e6;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sb-spectate.on {
+  border-color: var(--hider);
+  background: rgba(77, 181, 255, 0.14);
+}
+
+.sb-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.sb-row button {
+  flex: 1;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfd8e6;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sb-row button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sb-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: #9fb0c6;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.sb-msg {
+  min-height: 16px;
+  margin-top: 12px;
+  color: #ffe14d;
+  font-size: 11px;
+}
+
+.sb-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sb-start {
+  flex: 2;
+  padding: 12px;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(180deg, #6fe8b0, #2fae7c);
+  color: #04211a;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sb-start:hover {
+  filter: brightness(1.08);
+}
+
+.sb-back {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #cfd8e6;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sb-help {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: #63718a;
+  font-size: 11px;
+  line-height: 1.9;
 }
