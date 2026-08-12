@@ -14,6 +14,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 衝突解決の取りこぼし。対になるマーカーが消えていると git は衝突として
+      # 検出せず、TypeScript も Markdown も素通りするので、レビューまで残る。
+      # 実際 PR #55（日記）と PR #60（balance-log）で 1 行だけ残っていた。
+      - name: 衝突マーカーが残っていないか
+        run: |
+          if git grep -nE '^(<{7} |>{7} )' -- .; then
+            echo "::error::衝突解決の取りこぼしがあります。上の行を消してください"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
