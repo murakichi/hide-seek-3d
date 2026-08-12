@@ -164,10 +164,20 @@ export class SeekerBrain {
 
     const dist = Math.hypot(this.goal.x - agent.x, this.goal.z - agent.z);
     act.dash = this.mode === 'chase' ? dist < p.chaseDashDist : dist > 6;
-    // 相手が上に居るときは、隙間を挟んだ足場へも踏み切る。
+    // 隙間を挟んだ足場へ踏み切るのは、**それが要る場面だけ**にする。
+    //
+    // 条件を付けずに置いたら、鬼は 1 試合あたり 96 回踏み切り、そのうち 86.7% が
+    // 「高所に相手が居ないのに地上から跳んだ」ものだった。全ティックの 40.4% を
+    // 空中で過ごしており、空中の加速度は地上の半分以下（34 対 78）なので
+    // **曲がれないぶん遅くなる。** 3v3 の逃げ側勝率が 25.0% → 38.0% に上がった原因。
+    //
+    // 要るのは次の 2 つだけ。
+    //   - 相手が自分より上に居る（登って追う）
+    //   - 自分が既に台の上に居る（台から台へ渡る。ジャンプ台→高台→高台がこれ）
+    const wantsHeight = climbing || agent.y > 0.5;
     act.jump =
       shouldJump(ctx, agent, dir.mx, dir.mz, climbing && goalDist < 4.5) ||
-      this.shouldLeap(ctx, agent, dir);
+      (wantsHeight && this.shouldLeap(ctx, agent, dir));
 
     // 追跡中は獲物を、それ以外は進行方向を少しずつ振りながら見る。
     // 目標は迎撃点でも、視線は相手そのものに置く。先を見ると視野角から
