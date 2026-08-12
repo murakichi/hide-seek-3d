@@ -3,10 +3,13 @@
 
 import {
   CLIMB_REACH,
+  GRAVITY,
+  JUMP_SPEED,
   DT,
   GRAB_RANGE,
   SEEKER_SPEED,
   SMOKE_RADIUS,
+  STEP_HEIGHT,
   STAMINA_MAX,
   viewDistFor,
   VIEW_FOV,
@@ -25,6 +28,19 @@ import {
 } from './context';
 
 type Mode = 'chase' | 'investigate' | 'patrol';
+
+/**
+ * 跳び移り先として認める落差の下限。これより下の面は、跳ばずに歩いて落ちればよい。
+ * ただし隙間を挟んでいる場合は跳ばないと届かないので、少しだけ下も対象にする。
+ */
+const LEAP_DROP = 1.2;
+
+/**
+ * 着地に要求する余裕（m）。縁ぎりぎりを狙うと側面にぶつかって跳ね返される。
+ * `shouldJump`（すぐ手前の障害物に反応する既存の判定）が隣接した足場を扱うので、
+ * こちらは「余裕を持って上に乗れる隙間」だけを担当する。
+ */
+const LEAP_MARGIN = 0.8;
 
 /** 諦めた目標を避け続ける秒数。長すぎると盤面の一部を見なくなる */
 const AVOID_TIME = 12;
@@ -148,7 +164,10 @@ export class SeekerBrain {
 
     const dist = Math.hypot(this.goal.x - agent.x, this.goal.z - agent.z);
     act.dash = this.mode === 'chase' ? dist < p.chaseDashDist : dist > 6;
-    act.jump = shouldJump(ctx, agent, dir.mx, dir.mz, climbing && goalDist < 4.5);
+    // 相手が上に居るときは、隙間を挟んだ足場へも踏み切る。
+    act.jump =
+      shouldJump(ctx, agent, dir.mx, dir.mz, climbing && goalDist < 4.5) ||
+      this.shouldLeap(ctx, agent, dir);
 
     // 追跡中は獲物を、それ以外は進行方向を少しずつ振りながら見る。
     // 目標は迎撃点でも、視線は相手そのものに置く。先を見ると視野角から
@@ -242,6 +261,72 @@ export class SeekerBrain {
     } else {
       this.noProgress += DT;
     }
+  }
+
+  /**
+   * 隙間を越えて高い足場へ跳び移るための踏み切り。
+   *
+   * `shouldJump` は「進行方向のすぐ先が塞がっているか」でしか跳ばない。
+   * **隙間を挟んで高い台に飛び移る場合、目の前にあるのは空きスペースなので
+   * 条件を満たさず、永久に跳ばない。** 実際、低い台の上で接地していた 51 ティックの間
+   * ジャンプ指示は 1 度も出ていなかった（`_probe-highground.ts`、隙間 4 m）。
+   *
+   * 逃げる側はこれを使って「低い台 → 少し離れた高い台」へ渡り、
+   * 地上の鬼が `CATCH_VERTICAL`（1.6 m）に届かない高さへ逃げ込める。
+   * 鬼も同じ経路を使えなければ、その場所は安全地帯になる。
+   */
+  private shouldLeap(
+    ctx: AiContext,
+    agent: Agent,
+    dir: { mx: number; mz: number },
+  ): boolean {
+    if (!agent.grounded) return false;
+    if (Math.hypot(dir.mx, dir.mz) < 0.5) return false;
+
+    for (const o of ctx.game.state.obstacles) {
+      // 壁も除外しない。内壁は高さ 2.6 m で、小箱(1.3)の上からは届く＝乗れる足場。
+      // 逃げる側が壁の上を経由して渡れる以上、鬼が壁を無視すると同じ穴が残る。
+      // 届かない壁（外周は 3 m）は下の高さ判定で自然に落ちる。
+      const top = o.y + o.h;
+      if (top > agent.y + CLIMB_REACH) continue; // 今の高さからは届かない
+      if (top < agent.y - LEAP_DROP) continue; // 落差が大きい先は跳ばずに落ちればよい
+
+      // 対象は「今より高い足場」か、「自分が既に高所に居るときの同じ高さの足場」。
+      // 平地で低い箱に反応して跳ね回らないようにする。
+      const higher = top > agent.y + 0.2;
+      const elevated = agent.y > 0.5;
+      if (!higher && !elevated) continue;
+
+      const dx = o.x - agent.x;
+      const dz = o.z - agent.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.001) continue;
+      // 進行方向にあるものだけ。横や後ろの足場に反応して跳ねない。
+      if ((dx / d) * dir.mx + (dz / d) * dir.mz < 0.7) continue;
+
+      // 跳んでいる間に「その面の高さ以上に居る」区間を求め、
+      // その間に進める水平距離が足場の上に重なるかを見る。
+      // y(t) = JUMP_SPEED·t − (GRAVITY/2)·t²。段差 STEP_HEIGHT ぶんは自動で乗れる。
+      const rise = Math.max(0, top - agent.y - STEP_HEIGHT);
+      const disc = JUMP_SPEED * JUMP_SPEED - 2 * GRAVITY * rise;
+      if (disc < 0) continue; // その高さには跳んでも届かない
+      const root = Math.sqrt(disc);
+      // **今の速度**で計算する。追跡中はダッシュしていて 1.5 倍速いので、
+      // 基準速度で見積もると飛距離を 5 割見誤って足場を飛び越す。
+      const speed = Math.max(2, Math.hypot(agent.vx, agent.vz));
+      const reachMin = Math.max(0, ((JUMP_SPEED - root) / GRAVITY) * speed);
+      const reachMax = ((JUMP_SPEED + root) / GRAVITY) * speed;
+
+      const edge = d - Math.max(o.hw, o.hd);
+      const far = edge + 2 * Math.max(o.hw, o.hd); // 足場の向こう端
+      // 縁ぎりぎりで踏み切ると側面にぶつかって跳ね返される。余裕を持って乗れるときだけ。
+      // これが無いと、地上から低い台へ 4 m 手前で跳び続けて側面に当たり、
+      // いつまでも台に乗れなくなる（実測で最高到達 1.22 m、台の上面 1.3 m に届かない）。
+      if (reachMax < edge + LEAP_MARGIN) continue; // 手前に落ちる
+      if (reachMin > far - 0.3) continue; // 飛び越してしまう
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -343,7 +428,8 @@ export class SeekerBrain {
     let best: Obstacle | null = null;
     let bestScore = Infinity;
     for (const o of ctx.game.state.obstacles) {
-      if (o.kind === 'wall') continue;
+      // 壁も踏み台の候補にする。内壁は 2.6 m で、逃げる側が経由路に使える高さ。
+      // 届かないものは下の高さ判定で落ちる。
       const toPrey = Math.hypot(o.x - prey.x, o.z - prey.z);
       const toSelf = Math.hypot(o.x - agent.x, o.z - agent.z);
 
