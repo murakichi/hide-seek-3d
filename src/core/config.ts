@@ -68,12 +68,8 @@ export const PREP_TIME = 32;
  * `huntTimeFor` はここから引く方向にしか動かないので、
  * ヘッドレス実行の打ち切り上限（`PREP_TIME + HUNT_TIME`）はこの値で足りる。
  * 増やす方向の式に変えるときは `src/sim/*` の `MAX_TICKS` も一緒に直すこと。
- *
- * **3 構成を一律に持ち上げるレバーとして使っている。** 人数補正の形は変えずに
- * ここだけを動かすので、1v1 / 2v2 / 3v3 が同じ秒数ぶん短くなる。
- * 68 → 62 にしたときの実測は `docs/balance-log.md` 2026-08-12 の節。
  */
-export const HUNT_TIME = 62;
+export const HUNT_TIME = 68;
 
 /**
  * 人数が増えるほど逃げ切りに必要な時間を**伸ばす**。
@@ -93,13 +89,9 @@ export const HUNT_TIME = 62;
  * 68 秒に伸ばしても差が出ようがないため（マスクされている）。
  * 逃げ側が回復したら 3v3 を伸ばす向きは不利に働くので、そのときに測り直すこと。
  *
- * 1v1 50 / 2v2 56 / 3v3 以上 62 秒。`HUNT_TIME` が最長になる向きに揃えてある
+ * 1v1 56 / 2v2 62 / 3v3 以上 68 秒。`HUNT_TIME` が最長になる向きに揃えてある
  * （ヘッドレス実行の打ち切り上限がこれを前提にしている）。
- *
- * **人数補正の形（−6 秒/人）はこのサイクルでは触っていない。**
- * 3 構成が 33 / 33 / 30 とほぼ揃ったので、差を付け直すより
- * `HUNT_TIME` を一律に動かす方が筋だと判断した（issue #59）。
- * 実測は `docs/balance-log.md` 2026-08-11 と 2026-08-12 の節。
+ * 実測は `docs/balance-log.md` 2026-08-11 の節。
  */
 export function huntTimeFor(seekers: number): number {
   return HUNT_TIME - Math.max(0, 3 - seekers) * 6;
