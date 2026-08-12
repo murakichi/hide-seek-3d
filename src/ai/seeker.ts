@@ -122,7 +122,13 @@ export class SeekerBrain {
       if (lead) {
         this.mode = 'investigate';
         // 煙の中へ入っても何も見えない。向こう側へ抜けて、そこから見る。
-        this.goal = this.pastSmoke(ctx, agent, lead);
+        // 煙の向こう側へ回るのは、相手が煙を置いて**走り抜けた**ときの話。
+        // 目撃地点が台の上なら相手はそこに留まっているので、押し出すと台から離れてしまう。
+        // 実際、高台の相手が煙を撒くと目標が (6,0) → (12,-2) へずれて登れなくなっていた。
+        this.goal =
+          this.groundHeightAt(ctx, lead.x, lead.z) > CATCH_VERTICAL
+            ? lead
+            : this.pastSmoke(ctx, agent, lead);
       } else if (this.mode !== 'patrol' || !this.goal || this.reached(agent, this.goal, 1.4)) {
         this.mode = 'patrol';
         // 息が切れたままだと、見つけても追いつけない。巡回のついでに補給する。
