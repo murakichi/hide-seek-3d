@@ -54,6 +54,9 @@ const LEAP_MARGIN = 0.8;
  */
 const CLIMB_APPROACH = 7;
 
+/** 囲まれたときに「どかせる箱」を探す範囲。これより遠い箱は脱出に関係しない */
+const ESCAPE_SEARCH = 6;
+
 /** 諦めた目標を避け続ける秒数。長すぎると盤面の一部を見なくなる */
 const AVOID_TIME = 12;
 /** 諦めた目標のまわり、この距離までを避ける */
@@ -190,6 +193,25 @@ export class SeekerBrain {
     }
     if (!dir) dir = { mx: 0, mz: 0 };
 
+    // 向きがまったく決まらないなら、囲まれている。一番近い箱へ押し込む。
+    //
+    // 経路が取れず `directIfClear` も通らないと移動入力がゼロになる。
+    // ところが `handleObstruction`（詰まったら解錠・排除する処理）は
+    // **「動いている」ことを前提に詰まりを数える**ので、入力がゼロのままだと
+    // 一度も発火しない。結果、鬼は解錠も掴みも試さずにその場で試合を終える。
+    //
+    // 実測（`_probe-cage-why.ts`）: ロックした大箱 10 個でケージを囲うと、
+    // 追跡フェーズ 3361 ティックのあいだ速度 0.0、解錠指示 0 回、
+    // 最終半径 0.8（開始位置のまま）。逃げる側の勝率は 100%（20/20）だった。
+    if (Math.hypot(dir.mx, dir.mz) < 0.05) {
+      const push = this.escapeDirection(ctx, agent);
+      // 目標を固定する（`noProgress` を戻す）案も試したが、脱出は悪化した
+      // （出られなかった試合 10/20 → 12/20、掴み指示 26.7% → 0.4%）。
+      // 目標が切り替わること自体が、詰まりの計測をやり直して
+      // 掴み直すきっかけになっているらしい。触らない。
+      if (push) dir = push;
+    }
+
     act.moveX = dir.mx;
     act.moveZ = dir.mz;
 
@@ -302,6 +324,35 @@ export class SeekerBrain {
     } else {
       this.noProgress += DT;
     }
+  }
+
+  /**
+   * 囲まれて向きが決まらないときに押し込む先。一番近い「どかせる障害物」を返す。
+   *
+   * 壁は解錠も移動もできないので除く。箱ならロックを剥がすか掴んで引き抜ける。
+   * ここで向きを与えると `handleObstruction` が詰まりを数え始め、
+   * 接触した箱に対して解錠（`UNLOCK_TIME` 1.6 秒）か掴みを試すようになる。
+   */
+  private escapeDirection(
+    ctx: AiContext,
+    agent: Agent,
+  ): { mx: number; mz: number } | null {
+    let best: Obstacle | null = null;
+    let bestD = Infinity;
+    for (const o of ctx.game.state.obstacles) {
+      if (o.kind !== 'box') continue; // 壁・ランプ・ジャンプ台はどかせない
+      const d = Math.hypot(o.x - agent.x, o.z - agent.z) - Math.max(o.hw, o.hd);
+      if (d > ESCAPE_SEARCH) continue;
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    }
+    if (!best) return null;
+    const dx = best.x - agent.x;
+    const dz = best.z - agent.z;
+    const len = Math.hypot(dx, dz) || 1;
+    return { mx: dx / len, mz: dz / len };
   }
 
   /**
