@@ -65,12 +65,14 @@ for (let g = 0; g < GAMES; g++) {
         x: Math.sin(ang) * RING_R,
         z: Math.cos(ang) * RING_R,
         y: 0,
+        vy: 0,
         hw: 1.1,
         hd: 1.1,
         h: BOX_HEIGHT_BIG,
         heldBy: -1,
         lockedBy: 'hider',
         unlockProgress: 0,
+        rampDir: 0,
       };
       s.obstacles.push(box);
     }
