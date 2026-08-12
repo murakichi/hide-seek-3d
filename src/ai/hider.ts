@@ -194,6 +194,29 @@ export class HiderBrain {
       case 'haul': {
         const box = s.obstacles[this.job.box];
         if (agent.grabbed !== box.id) {
+          // **掴みが切れても仕事は捨てず、同じ (箱, 置き場所) を掴み直す。**
+          //
+          // 掴みは `gap > GRAB_RANGE + 1`(2.6m) で切れる（`game.ts`）。
+          // 箱が詰まっているのに置き場所へ歩き続けると、運び手だけが進んで
+          // 自分で掴みを切ってしまう。実測（3v3 / 30 試合）では
+          // **運搬の 86.6% が «拠点に届く前に外れる»**（届いたのは 2291 回中 307 回）。
+          //
+          // これまでは `releaseJob()` で idle に戻していたので、
+          // **切れるたびに «どの箱をどこへ» から選び直していた。**
+          // 途中まで運んだ箱は拠点に近いぶん次も選ばれやすいが、
+          // 別の箱に乗り換えることもあり、そのたびに往復が増える。
+          // `fetch` へ戻せば、拾い直して続きから運べる。
+          // 掴めないまま粘る事故は `fetch` 側の `stuckTimer > 2.5` が拾う。
+          if (
+            ctx.params.hider.haulResume > 0.5 &&
+            box.lockedBy === null &&
+            box.heldBy < 0 &&
+            (this.avoid.get(box.id) ?? 0) <= s.time
+          ) {
+            this.job = { kind: 'fetch', box: box.id, slot: this.job.slot };
+            this.stuckTimer = 0;
+            return false;
+          }
           this.releaseJob();
           return false;
         }
