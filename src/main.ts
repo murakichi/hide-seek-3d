@@ -11,6 +11,7 @@ import { MatchRecorder } from './sim/recorder';
 import { Hud } from './ui/hud';
 import { downloadMatchLog } from './ui/logfile';
 import { Menu, type MenuResult } from './ui/menu';
+import { SandboxEditor } from './ui/sandbox';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui-root') as HTMLDivElement;
@@ -22,12 +23,13 @@ let game: Game | null = null;
 let ai: AiDirector | null = null;
 let view: GameView | null = null;
 let recorder: MatchRecorder | null = null;
-let lastSetup: MenuResult | null = null;
+/** 直前に始めた試合の設定。「もう一度」はシードだけ変えてこれを使い回す */
+let lastConfig: MatchConfig | null = null;
 
 let speed = 1;
 const hud = new Hud(
   uiRoot,
-  () => start(lastSetup!),
+  () => restart(),
   () => toMenu(),
   (m) => {
     speed = m;
@@ -39,6 +41,7 @@ const hud = new Hud(
     mode: () => hud.setCameraMode(renderer.toggleCameraMode()),
     zoom: (steps) => renderer.zoomBy(steps),
   },
+  () => toSandbox(),
 );
 hud.hide();
 hud.setCameraMode(renderer.cameraMode);
@@ -52,7 +55,8 @@ function isSpectating(g: Game): boolean {
 // 観戦中はキー 1〜4 でも早送りできる。C でカメラ、Z / X でズーム。
 window.addEventListener('keydown', (e) => {
   if (game && isSpectating(game)) hud.cycleSpeedByKey(e.code);
-  if (e.code === 'KeyC') hud.setCameraMode(renderer.toggleCameraMode());
+  // 追従は試合中だけ。サンドボックスの編集中は俯瞰のまま固定する。
+  if (e.code === 'KeyC' && game) hud.setCameraMode(renderer.toggleCameraMode());
   if (e.code === 'KeyZ') renderer.zoomBy(1);
   if (e.code === 'KeyX') renderer.zoomBy(-1);
 });
@@ -70,16 +74,69 @@ function followTarget(g: Game): { x: number; z: number } | null {
   return seeker ? { x: seeker.x, z: seeker.z } : null;
 }
 
-const menu = new Menu(uiRoot, (r) => start(r));
+const menu = new Menu(
+  uiRoot,
+  (r) => start(r),
+  () => toSandbox(),
+);
+
+// サンドボックスは試合と同じ GameView に下絵を描く。
+const sandbox = new SandboxEditor(
+  uiRoot,
+  renderer,
+  {
+    rebuild: (g) => showScene(g),
+    sync: (g) => view?.sync(g, null),
+  },
+  (config) => startMatch(config),
+  () => toMenu(),
+);
+
+function newSeed(): number {
+  return (Math.random() * 0xffffff) | 0;
+}
 
 function toMenu(): void {
   hud.hide();
+  sandbox.hide();
+  clearMatch();
   menu.show();
 }
 
+function toSandbox(): void {
+  hud.hide();
+  menu.hide();
+  clearMatch();
+  sandbox.show();
+}
+
+/** 試合を畳む。サンドボックスの下絵を上書きされないよう、ループを止めておく。 */
+function clearMatch(): void {
+  game = null;
+  ai = null;
+  recorder = null;
+}
+
+function showScene(g: Game): void {
+  if (view) view.build(g);
+  else view = new GameView(renderer, g);
+}
+
 function start(setup: MenuResult): void {
-  lastSetup = setup;
-  const config: MatchConfig = Menu.toConfig(setup, (Math.random() * 0xffffff) | 0);
+  startMatch(Menu.toConfig(setup, newSeed()));
+}
+
+/** 「もう一度」。同じ設定でシードだけ引き直す（サンドボックスの配置も保たれる）。 */
+function restart(): void {
+  if (lastConfig) startMatch({ ...lastConfig, seed: newSeed() });
+}
+
+function startMatch(config: MatchConfig): void {
+  lastConfig = config;
+  menu.hide();
+  sandbox.hide();
+  // 手で組んだ盤面から始めた試合だけ、結果画面から編集へ戻れるようにする。
+  hud.setSandbox(config.layout != null);
   game = new Game(config);
   ai = new AiDirector(game);
   // 記録はいつでも保存できるよう、最初から回しておく。
@@ -92,8 +149,7 @@ function start(setup: MenuResult): void {
       describeCoop: (team) => ai!.describeCoop(team),
     },
   });
-  if (view) view.build(game);
-  else view = new GameView(renderer, game);
+  showScene(game);
   hud.show();
 }
 

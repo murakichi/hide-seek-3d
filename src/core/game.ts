@@ -32,20 +32,36 @@ export class Game {
 
   reset(config: MatchConfig): void {
     this.rng = new Rng(config.seed);
+    const layout = config.layout;
     const scale = 0.75 + (config.hiders + config.seekers) * 0.16;
-    const obstacles = buildArena(config.seed, scale);
-    const agents = this.spawnAgents(config, obstacles);
-    const pickups = buildPickups(
-      config.seed,
-      obstacles,
-      Math.round((config.hiders + config.seekers) * C.PICKUPS_PER_AGENT),
-    );
+    const obstacles = layout
+      ? layout.obstacles.map((o, i) => ({
+          ...o,
+          id: i,
+          vy: 0,
+          heldBy: -1,
+          unlockProgress: 0,
+        }))
+      : buildArena(config.seed, scale);
+    const agents = layout
+      ? this.spawnFromLayout(layout)
+      : this.spawnAgents(config, obstacles);
+    const pickups = layout
+      ? layout.pickups.map((p, i) => ({ id: i, x: p.x, z: p.z, active: true, respawnAt: 0 }))
+      : buildPickups(
+          config.seed,
+          obstacles,
+          Math.round((config.hiders + config.seekers) * C.PICKUPS_PER_AGENT),
+        );
+
+    // 準備フェーズを飛ばす場合は、最初から追跡フェーズの残り時間で始める。
+    const skipPrep = config.skipPrep === true;
 
     this.state = {
       config,
-      phase: 'prep',
+      phase: skipPrep ? 'hunt' : 'prep',
       time: 0,
-      phaseTime: C.PREP_TIME,
+      phaseTime: skipPrep ? C.huntTimeFor(config.seekers) : C.PREP_TIME,
       agents,
       obstacles,
       pickups,
@@ -58,16 +74,35 @@ export class Game {
     this.visible = { hider: new Set(), seeker: new Set() };
   }
 
-  private spawnAgents(config: MatchConfig, obstacles: Obstacle[]): Agent[] {
-    const agents: Agent[] = [];
+  /**
+   * 手で組んだ配置からエージェントを作る。並び順がそのまま ID になるので、
+   * `agents[id]` で引く箇所（掴んでいる箱の持ち主など）と辻褄が合う。
+   */
+  private spawnFromLayout(layout: NonNullable<MatchConfig['layout']>): Agent[] {
     let id = 0;
+    // 人間が操作できるのは 1 人だけ。複数指定されていたら最初の 1 人を採る。
+    let playerTaken = false;
+    return layout.agents.map((sp) => {
+      const isPlayer = sp.isPlayer && !playerTaken;
+      if (isPlayer) playerTaken = true;
+      return this.makeAgent(id++, sp.team, sp.x, sp.z, isPlayer, sp.y ?? 0);
+    });
+  }
 
-    const mk = (team: Team, x: number, z: number, isPlayer: boolean): Agent => ({
-      id: id++,
+  private makeAgent(
+    id: number,
+    team: Team,
+    x: number,
+    z: number,
+    isPlayer: boolean,
+    y = 0,
+  ): Agent {
+    return {
+      id,
       team,
       x,
       z,
-      y: 0,
+      y,
       vx: 0,
       vz: 0,
       vy: 0,
@@ -83,7 +118,15 @@ export class Game {
       lastSmokeAt: -99,
       isPlayer,
       lastSeenAt: -99,
-    });
+    };
+  }
+
+  private spawnAgents(config: MatchConfig, obstacles: Obstacle[]): Agent[] {
+    const agents: Agent[] = [];
+    let id = 0;
+
+    const mk = (team: Team, x: number, z: number, isPlayer: boolean): Agent =>
+      this.makeAgent(id++, team, x, z, isPlayer);
 
     // 逃げる側は外周寄りに散らす。障害物と重ならない位置を探す。
     for (let i = 0; i < config.hiders; i++) {

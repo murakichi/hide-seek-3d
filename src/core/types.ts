@@ -133,6 +133,30 @@ export function emptyAction(): Action {
   };
 }
 
+/**
+ * 手で置いたエージェントの初期状態。サンドボックスが作る。
+ * 誰が人間の操作対象かもここで決まる（`isPlayer` は最大 1 人）。
+ */
+export interface AgentSpawn {
+  team: Team;
+  x: number;
+  z: number;
+  /** 足元の高さ。箱の上に立たせたいときに使う（省略時は地面） */
+  y?: number;
+  isPlayer: boolean;
+}
+
+/**
+ * 手で組んだ盤面。`MatchConfig.layout` に渡すと、シードからの自動生成の代わりに
+ * そのまま初期状態として使われる。座標だけを持つ素の記述なので、
+ * ID や掴み状態などの実行時の値は `Game` 側で振り直す。
+ */
+export interface ArenaLayout {
+  obstacles: Obstacle[];
+  agents: AgentSpawn[];
+  pickups: Array<{ x: number; z: number }>;
+}
+
 export interface MatchConfig {
   /** 逃げる側の人数 */
   hiders: number;
@@ -142,6 +166,17 @@ export interface MatchConfig {
   playerTeam: Team | null;
   /** 乱数シード（同じシード + 同じ入力列 = 同じ試合） */
   seed: number;
+  /**
+   * 手で組んだ盤面。指定するとアリーナ生成と初期配置を行わない。
+   * `hiders` / `seekers` は layout のエージェント数と一致させること。
+   */
+  layout?: ArenaLayout;
+  /**
+   * 準備フェーズを飛ばして追跡フェーズから始める。
+   * サンドボックスは「置いた状態がそのまま開始状態」なので既定でこちら
+   * （準備フェーズを挟むと鬼が中央のケージへ引き戻されてしまう）。
+   */
+  skipPrep?: boolean;
 }
 
 export interface GameState {
