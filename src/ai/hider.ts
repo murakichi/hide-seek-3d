@@ -720,6 +720,15 @@ export class HiderBrain {
     }
     if (!pad || padD > p.buildPerch) return false;
 
+    // 台を 1 人で押さえる。押さえられなかった人は建設しない。
+    //
+    // 予約が無いと、同じ台を見た全員が別々の箱を同じ場所へ運ぶ。
+    // 高台は 1 つあれば足りるので、2 人目以降は準備時間を捨てているだけで、
+    // しかも**全員が同じ 1 箇所に集まる**ので鬼にまとめて狩られる。
+    // 3v3 だけ -14.0 pt という偏り方（1v1 +5.0 / 2v2 +2.0）は、人数が増えるほど
+    // 重なりが増えることと符合する。近い人ほど強く主張する。
+    if (!ctx.coop.hider.claim('target', `pad:${pad.id}`, agent.id, -padD, s.time)) return false;
+
     for (const o of s.obstacles) {
       if (o.kind === 'wall' || o.kind === 'pad' || o.kind === 'ramp') continue;
       const top = o.y + o.h;
