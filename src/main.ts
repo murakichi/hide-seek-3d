@@ -35,8 +35,13 @@ const hud = new Hud(
   () => {
     if (game && recorder) downloadMatchLog(game, recorder);
   },
+  {
+    mode: () => hud.setCameraMode(renderer.toggleCameraMode()),
+    zoom: (steps) => renderer.zoomBy(steps),
+  },
 );
 hud.hide();
+hud.setCameraMode(renderer.cameraMode);
 
 /** 自分で操作していない試合か。観戦を選んだ場合と、捕まって観戦に回った場合。 */
 function isSpectating(g: Game): boolean {
@@ -44,10 +49,26 @@ function isSpectating(g: Game): boolean {
   return g.playerAgent?.caught ?? false;
 }
 
-// 観戦中はキー 1〜4 でも早送りできる。
+// 観戦中はキー 1〜4 でも早送りできる。C でカメラ、Z / X でズーム。
 window.addEventListener('keydown', (e) => {
   if (game && isSpectating(game)) hud.cycleSpeedByKey(e.code);
+  if (e.code === 'KeyC') hud.setCameraMode(renderer.toggleCameraMode());
+  if (e.code === 'KeyZ') renderer.zoomBy(1);
+  if (e.code === 'KeyX') renderer.zoomBy(-1);
 });
+
+/**
+ * 追従カメラが追う相手。自分が生きていれば自分。
+ * 観戦中と捕まったあとは、残っている逃走者（居なければ鬼の 1 人）を追う。
+ */
+function followTarget(g: Game): { x: number; z: number } | null {
+  const player = g.playerAgent;
+  if (player && !player.caught) return { x: player.x, z: player.z };
+  const hider = g.aliveHiders()[0];
+  if (hider) return { x: hider.x, z: hider.z };
+  const seeker = g.state.agents.find((a) => a.team === 'seeker');
+  return seeker ? { x: seeker.x, z: seeker.z } : null;
+}
 
 const menu = new Menu(uiRoot, (r) => start(r));
 
@@ -107,6 +128,9 @@ function frame(now: number): void {
     }
     view.sync(game, game.state.config.playerTeam);
     hud.update(game);
+    renderer.updateCamera(elapsed, followTarget(game));
+  } else {
+    renderer.updateCamera(elapsed, null);
   }
 
   renderer.render();
