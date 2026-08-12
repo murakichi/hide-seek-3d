@@ -43,12 +43,17 @@ export interface SeekerParams {
 }
 
 export interface HiderParams {
+<<<<<<< HEAD
   /** 拠点の箱をロックするか（1 で固める / 0 で置くだけ。ロックは鬼を呼ぶ） */
   lockShelter: number;
   /** 囮としてロックする箱の「拠点からの最短距離」（0 で無効） */
   decoyLockDist: number;
   /** 準備フェーズの残りがこれ以上あるときだけ囮を取りに行く */
   decoyLockMargin: number;
+=======
+  /** 視線が切れている間だけ、この距離までパックを取りに行く（0 で無効） */
+  boostGrabDist: number;
+>>>>>>> origin/worktree-fix-hider-boost-pickup
   /** 拠点の外周半径（この円周上に箱を並べる） */
   shelterRadius: number;
   /** 鬼をこの距離まで感知したら逃走に切り替える */
@@ -96,9 +101,13 @@ const BASE_PARAMS: AiParams = {
     clearDist: 2.2,
   },
   hider: {
+<<<<<<< HEAD
     lockShelter: 1,
     decoyLockDist: 11,
     decoyLockMargin: 10,
+=======
+    boostGrabDist: 10,
+>>>>>>> origin/worktree-fix-hider-boost-pickup
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,

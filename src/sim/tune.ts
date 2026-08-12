@@ -27,9 +27,7 @@ const SEEKER_RANGES: Record<string, Range> = {
 };
 
 const HIDER_RANGES: Record<string, Range> = {
-  lockShelter: [0, 1],
-  decoyLockDist: [0, 18],
-  decoyLockMargin: [4, 18],
+  boostGrabDist: [0, 16],
   shelterRadius: [2, 4],
   fleeTriggerDist: [6, 20],
   fleeDashDist: [3, 16],
