@@ -2,6 +2,7 @@
 // 「長く見ていない場所」を優先して巡回する。ロックされた箱は隠れ場所の手がかりとして重視する。
 
 import {
+  CATCH_VERTICAL,
   CLIMB_REACH,
   GRAVITY,
   JUMP_SPEED,
@@ -148,7 +149,11 @@ export class SeekerBrain {
     const targetX = prey ? prey.x : this.goal.x;
     const targetZ = prey ? prey.z : this.goal.z;
     const targetY = prey ? prey.y : this.groundHeightAt(ctx, this.goal.x, this.goal.z);
-    const climbing = targetY > agent.y + 0.4;
+    // **登るのは、そこに居られると触れない高さのときだけ。**
+    // 高さの差だけで判定すると、逃げる側が小箱(1.3)に乗るたびに登ろうとして
+    // 時間を浪費する。小箱の上は `CATCH_VERTICAL`(1.6) の内側なので地上から捕まえられる。
+    // この条件を入れる前は 3v3 で逃げ側の勝率が 10 ポイント上がった（＝鬼が弱くなった）。
+    const climbing = targetY > agent.y + 0.4 && targetY > CATCH_VERTICAL;
     if (climbing) {
       const step = this.climbTarget(ctx, agent, targetX, targetZ, targetY);
       if (step) this.goal = step;
