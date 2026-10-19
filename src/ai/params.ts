@@ -55,6 +55,8 @@ export interface HiderParams {
   boostGrabDist: number;
   /** 運搬中に掴みが切れたら、同じ箱を掴み直して続ける（1 で有効 / 0 で選び直し） */
   haulResume: number;
+  /** 運べなかった箱を候補から外しておく秒数（issue #31。短いと同じ箱をすぐ掴み直す） */
+  haulAvoidTime: number;
   /** 拠点の箱をロックするか（1 で固める / 0 で置くだけ。ロックは鬼を呼ぶ） */
   lockShelter: number;
   /** 囮としてロックする箱の「拠点からの最短距離」（0 で無効） */
@@ -114,6 +116,7 @@ const BASE_PARAMS: AiParams = {
     perchIsolation: 3,
     boostGrabDist: 10,
     haulResume: 1,
+    haulAvoidTime: 30,
     lockShelter: 1,
     decoyLockDist: 11,
     decoyLockMargin: 10,

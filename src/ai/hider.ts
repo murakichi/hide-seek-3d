@@ -376,7 +376,7 @@ export class HiderBrain {
 
   /** 運べなかった箱をしばらく候補から外す。同じ失敗を繰り返さないため。 */
   private abandon(ctx: AiContext, boxId: number): void {
-    this.avoid.set(boxId, ctx.game.state.time + 6);
+    this.avoid.set(boxId, ctx.game.state.time + ctx.params.hider.haulAvoidTime);
     this.stuckTimer = 0;
     this.boxStall = 0;
     this.releaseJob();
