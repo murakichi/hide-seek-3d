@@ -865,7 +865,7 @@ export class HiderBrain {
 
       // 壁や隅に貼り付くと逃げ場が無くなる。
       const wallGap = Math.min(ARENA_HALF - Math.abs(px), ARENA_HALF - Math.abs(pz));
-      if (wallGap < 6) score -= (6 - wallGap) * 4;
+      if (wallGap < p.fleeWallRange) score -= (p.fleeWallRange - wallGap) * p.fleeWallWeight;
 
       // 味方と同じ方向へ逃げない。固まると鬼にまとめて見つかり、
       // 1 人でも残れば勝ちというルールの利点を自分から捨てることになる。

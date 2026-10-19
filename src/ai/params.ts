@@ -77,6 +77,10 @@ export interface HiderParams {
   fleeTurnCost: number;
   /** 逃走先スコア：箱を乗り越える向きを選ぶことの代償（登る間だけ足が止まる） */
   fleeClimbCost: number;
+  /** 逃走先スコア：壁からこの距離以内の終点を減点する範囲 */
+  fleeWallRange: number;
+  /** 逃走先スコア：壁際の終点の減点（範囲内で 1 m 壁に寄るごと） */
+  fleeWallWeight: number;
   /** 準備終了の何秒前に拠点へ戻るか */
   retreatMargin: number;
   /** 拠点に籠もるか、動き回るかの傾向（0=静止, 1=遊動） */
@@ -125,6 +129,8 @@ const BASE_PARAMS: AiParams = {
     fleeCoverBonus: 14,
     fleeTurnCost: 30,
     fleeClimbCost: 20,
+    fleeWallRange: 9,
+    fleeWallWeight: 8,
     retreatMargin: 3,
     roamBias: 0.25,
     threatMemory: 10,
