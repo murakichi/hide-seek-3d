@@ -2,12 +2,14 @@
 // 「長く見ていない場所」を優先して巡回する。ロックされた箱は隠れ場所の手がかりとして重視する。
 
 import {
+  ARENA_HALF,
   CATCH_VERTICAL,
   CLIMB_REACH,
   GRAVITY,
   JUMP_SPEED,
   DT,
   GRAB_RANGE,
+  HIDER_SPEED,
   SEEKER_SPEED,
   SMOKE_RADIUS,
   STEP_HEIGHT,
@@ -601,8 +603,38 @@ export class SeekerBrain {
       const score = d + age * 2;
       if (score < bestScore) {
         bestScore = score;
-        best = { x: rec.x, z: rec.z };
+        best = this.extrapolateLead(ctx, agent, rec, age);
       }
+    }
+    return best;
+  }
+
+  /**
+   * 目撃地点から、相手が鬼の反対側へ逃げた先を推定する。
+   * 速度は記憶に残らないので、「目撃時に自分から離れる向き」を逃げた向きとみなす。
+   * 壁や箱にぶつかる手前で止める。
+   */
+  private extrapolateLead(
+    ctx: AiContext,
+    agent: Agent,
+    rec: { x: number; z: number },
+    age: number,
+  ): { x: number; z: number } {
+    const t = ctx.params.seeker.leadExtrapTime;
+    if (t <= 0) return { x: rec.x, z: rec.z };
+    const dx = rec.x - agent.x;
+    const dz = rec.z - agent.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 1e-3) return { x: rec.x, z: rec.z };
+    const reach = HIDER_SPEED * Math.min(age, t);
+    let best = { x: rec.x, z: rec.z };
+    for (let s = 1; s <= 8; s++) {
+      const r = (reach * s) / 8;
+      const x = rec.x + (dx / d) * r;
+      const z = rec.z + (dz / d) * r;
+      if (Math.abs(x) > ARENA_HALF - 1 || Math.abs(z) > ARENA_HALF - 1) break;
+      if (ctx.nav.isBlockedWorld(x, z)) break;
+      best = { x, z };
     }
     return best;
   }
