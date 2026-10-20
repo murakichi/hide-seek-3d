@@ -125,7 +125,7 @@ const BASE_PARAMS: AiParams = {
     haulAvoidTime: 30,
     lockShelter: 1,
     decoyLockDist: 11,
-    decoyLockMargin: 10,
+    decoyLockMargin: 5,
     shelterRadius: 2.5,
     fleeTriggerDist: 13,
     fleeDashDist: 9,
