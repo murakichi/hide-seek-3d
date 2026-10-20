@@ -63,6 +63,31 @@ function climbableAt(obstacles: readonly Obstacle[], x: number, z: number): bool
   return found;
 }
 
+/**
+ * 2 点を結ぶ線分が壁（外周以外の内壁）に当たるか。箱の運搬は壁を越えられないので、
+ * 箱と置き場所の間に壁があると噛ませたまま押し続けることになる（issue #81）。
+ * 登れる低い箱や積んだ箱は対象外（`kind === 'wall'` だけを見る）。
+ */
+function wallBetween(
+  obstacles: readonly Obstacle[],
+  x1: number,
+  z1: number,
+  x2: number,
+  z2: number,
+): boolean {
+  const steps = Math.max(4, Math.ceil(Math.hypot(x2 - x1, z2 - z1) / 0.6));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const px = x1 + (x2 - x1) * t;
+    const pz = z1 + (z2 - z1) * t;
+    for (const o of obstacles) {
+      if (o.kind !== 'wall') continue;
+      if (Math.abs(px - o.x) < o.hw + 0.5 && Math.abs(pz - o.z) < o.hd + 0.5) return true;
+    }
+  }
+  return false;
+}
+
 export class HiderBrain {
   private path: Array<{ x: number; z: number }> = [];
   private job: Job = { kind: 'idle' };
@@ -318,6 +343,8 @@ export class HiderBrain {
 
     let bestJob: Job | null = null;
     let bestCost = Infinity;
+    let bestBlockedJob: Job | null = null;
+    let bestBlockedCost = Infinity;
     for (const o of s.obstacles) {
       if (o.kind !== 'box' || o.lockedBy !== null || o.heldBy >= 0) continue;
       if (o.hw + o.hd > GRAB_MAX_SIZE) continue;
@@ -329,7 +356,16 @@ export class HiderBrain {
         if (haul > MAX_HAUL_DIST) continue;
         // 運搬距離を最重視。近づく距離と入口優先度で微調整する。
         const cost = haul * 1.6 + toAgent * 0.7 - slot.inward * 1.2;
-        if (cost < bestCost) {
+        // 壁を挟む組は噛ませたまま 1.2 秒を捨てやすい。壁を挟まない組があればそちらを優先し、
+        // 無いときだけ従来どおり運ぶ（外すと届く数そのものが減る。issue #81）。
+        const blocked =
+          ctx.params.hider.haulWallGate > 0.5 && wallBetween(s.obstacles, o.x, o.z, slot.x, slot.z);
+        if (blocked) {
+          if (cost < bestBlockedCost) {
+            bestBlockedCost = cost;
+            bestBlockedJob = { kind: 'fetch', box: o.id, slot: slot.i };
+          }
+        } else if (cost < bestCost) {
           bestCost = cost;
           bestJob = { kind: 'fetch', box: o.id, slot: slot.i };
         }
@@ -337,6 +373,7 @@ export class HiderBrain {
     }
 
     if (bestJob) return bestJob;
+    if (bestBlockedJob) return bestBlockedJob;
 
     // 運ぶ仕事が無くなったら、拠点から離れた箱をロックして囮にする。
     //

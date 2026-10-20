@@ -33,6 +33,7 @@ const HIDER_RANGES: Record<string, Range> = {
   perchIsolation: [1.5, 6],
   boostGrabDist: [0, 16],
   haulResume: [0, 1],
+  haulWallGate: [0, 1],
   haulAvoidTime: [2, 30],
   lockShelter: [0, 1],
   decoyLockDist: [0, 18],
