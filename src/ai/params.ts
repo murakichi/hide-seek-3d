@@ -20,6 +20,11 @@ export interface SeekerParams {
   /** 直近目撃をどれだけ信用し続けるか（秒） */
   memoryTrust: number;
   /**
+   * 見失った相手の逃げ先を、目撃地点から**鬼の反対側**へこの秒数ぶん先読みする（0 で無効）。
+   * 逃げ側は鬼を自分より遠くから見つけて走り出すので、目撃地点は着いたときには空になっている。
+   */
+  leadExtrapTime: number;
+  /**
    * 1 つの目撃情報へ向かう鬼の上限人数（近い順）。
    * 記憶はチーム共有なので、制限しないと全員が同じ 1 点へ向かって団子になる。
    * あぶれた鬼は巡回へ回り、別の場所を見る。
@@ -107,6 +112,7 @@ const BASE_PARAMS: AiParams = {
     chaseLeadTime: 0.6,
     chaseMaxSeekers: 1,
     memoryTrust: 6,
+    leadExtrapTime: 2,
     leadMaxSeekers: 1,
     patrolDistWeight: 0.55,
     lockedBoxLure: 8,
