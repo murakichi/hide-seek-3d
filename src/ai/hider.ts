@@ -376,7 +376,7 @@ export class HiderBrain {
 
   /** 運べなかった箱をしばらく候補から外す。同じ失敗を繰り返さないため。 */
   private abandon(ctx: AiContext, boxId: number): void {
-    this.avoid.set(boxId, ctx.game.state.time + 6);
+    this.avoid.set(boxId, ctx.game.state.time + ctx.params.hider.haulAvoidTime);
     this.stuckTimer = 0;
     this.boxStall = 0;
     this.releaseJob();
@@ -865,7 +865,13 @@ export class HiderBrain {
 
       // 壁や隅に貼り付くと逃げ場が無くなる。
       const wallGap = Math.min(ARENA_HALF - Math.abs(px), ARENA_HALF - Math.abs(pz));
-      if (wallGap < 6) score -= (6 - wallGap) * 4;
+      // 鬼が 3 人以上のときだけ強める。壁沿いは挟み撃ちされやすいが、鬼が少ないと
+      // 壁際を避けるぶん遮蔽や直線の逃げ道を捨てることになる（PR #92: 3v3 +10 / 1v1 −21）。
+      if (seekers.length >= p.fleeWallMinSeekers) {
+        if (wallGap < p.fleeWallRange) score -= (p.fleeWallRange - wallGap) * p.fleeWallWeight;
+      } else if (wallGap < 6) {
+        score -= (6 - wallGap) * 4;
+      }
 
       // 味方と同じ方向へ逃げない。固まると鬼にまとめて見つかり、
       // 1 人でも残れば勝ちというルールの利点を自分から捨てることになる。
